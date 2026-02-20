@@ -1,0 +1,489 @@
+/* ========================================
+   CODE CLASH — LOGIN PAGE
+   Hacker / Algorithm Battle Theme
+   ======================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&family=Poppins:wght@300;400;500;600;700&display=swap');
+
+/* --- Container & Matrix Background --- */
+.login-container {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: #000;
+  overflow: hidden;
+  font-family: 'Poppins', sans-serif;
+}
+
+/* --- Main Content Layout --- */
+.login-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 80px;
+  max-width: 1100px;
+  width: 100%;
+  padding: 40px;
+  opacity: 1;
+}
+
+/* ========================================
+   LEFT SIDE — Hero / Branding
+   ======================================== */
+.login-hero {
+  flex: 1;
+  max-width: 500px;
+}
+
+.hero-badge {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-family: 'Poppins', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+
+
+.hero-title {
+  font-family: 'Poppins', sans-serif;
+  font-size: 52px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.1;
+  margin-bottom: 12px;
+  letter-spacing: -1px;
+}
+
+.title-accent {
+  color: #888;
+  font-weight: 400;
+}
+
+.title-clash {
+  color: #fff;
+}
+
+.title-year {
+  font-size: 28px;
+  color: #555;
+  margin-left: 8px;
+  font-weight: 400;
+  vertical-align: super;
+}
+
+.hero-tagline {
+  font-family: 'Poppins', sans-serif;
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 32px;
+  letter-spacing: 1px;
+}
+
+/* --- Terminal Preview --- */
+.hero-terminal {
+  background: #0a0a0a;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #111;
+  border-bottom: 1px solid #1e1e1e;
+}
+
+.terminal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.terminal-dot.red { background: #ff5f56; }
+.terminal-dot.yellow { background: #ffbd2e; }
+.terminal-dot.green { background: #27c93f; }
+
+.terminal-title {
+  font-family: 'Fira Code', monospace;
+  color: #555;
+  font-size: 11px;
+  margin-left: 8px;
+}
+
+.terminal-body {
+  padding: 16px 14px;
+  font-family: 'Fira Code', monospace;
+  font-size: 13px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.terminal-prompt {
+  color: #888;
+  font-weight: 600;
+}
+
+.terminal-typed {
+  color: #c9d1d9;
+}
+
+.terminal-cursor {
+  color: #fff;
+  animation: blink 0.8s step-end infinite;
+  font-weight: 300;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* --- Stats Row --- */
+.hero-stats {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+  padding: 12px 16px;
+  flex: 1;
+  transition: border-color 0.3s;
+}
+
+.stat-item:hover {
+  border-color: #333;
+}
+
+.stat-icon {
+  font-size: 22px;
+  filter: grayscale(0.3);
+}
+
+.stat-value {
+  color: #fff;
+  font-family: 'Poppins', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.stat-label {
+  color: #555;
+  font-size: 11px;
+  font-family: 'Poppins', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* --- Event Info --- */
+.hero-event {
+  color: #444;
+  font-size: 12px;
+  font-family: 'Poppins', sans-serif;
+  line-height: 2;
+}
+
+.event-icon {
+  margin-right: 4px;
+}
+
+/* ========================================
+   RIGHT SIDE — Login Form
+   ======================================== */
+.login-box {
+  width: 400px;
+  flex-shrink: 0;
+  background: #111;
+  border: 1px solid #1e1e1e;
+  border-radius: 12px;
+  padding: 40px;
+}
+
+.login-box-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.header-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #222, transparent);
+}
+
+.header-text {
+  font-family: 'Poppins', sans-serif;
+  color: #888;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
+/* --- Form Fields --- */
+.form-group {
+  margin-bottom: 22px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: #555;
+  font-family: 'Poppins', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 1px;
+}
+
+.label-symbol {
+  color: #555;
+  font-size: 8px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  background: #0a0a0a;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.input-wrapper:focus-within {
+  border-color: #555;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+}
+
+.input-prefix {
+  color: #333;
+  font-family: 'Poppins', sans-serif;
+  font-size: 14px;
+  padding: 0 0 0 14px;
+  user-select: none;
+}
+
+.login-container .form-group input {
+  flex: 1;
+  width: 100%;
+  padding: 14px 14px 14px 8px;
+  background: transparent;
+  border: none;
+  color: #e6edf3;
+  font-family: 'Poppins', sans-serif;
+  font-size: 14px;
+  outline: none;
+}
+
+.login-container .form-group input::placeholder {
+  color: #2a2a2a;
+  font-style: normal;
+}
+
+/* --- Error Message --- */
+.error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid rgba(255, 59, 48, 0.2);
+  color: #ff6b6b;
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-family: 'Poppins', sans-serif;
+  font-size: 12px;
+}
+
+.error-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* --- Submit Button --- */
+.login-btn {
+  width: 100%;
+  padding: 16px;
+  background: #fff;
+  color: #000;
+  border: none;
+  border-radius: 8px;
+  font-family: 'Poppins', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.login-btn:hover:not(:disabled)::before {
+  left: 100%;
+}
+
+.login-btn:hover:not(:disabled) {
+  background: #e5e5e5;
+  transform: translateY(-1px);
+}
+
+.login-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.login-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: #333;
+  color: #888;
+}
+
+.btn-arrow {
+  font-size: 16px;
+  transition: transform 0.3s;
+}
+
+.login-btn:hover:not(:disabled) .btn-arrow {
+  transform: translateX(4px);
+}
+
+/* --- Loading Spinner --- */
+.loading-text {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-top-color: #000;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- Footer --- */
+.login-footer {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #1a1a1a;
+  text-align: center;
+}
+
+.footer-line {
+  display: block;
+  font-family: 'Poppins', sans-serif;
+  color: #2a2a2a;
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
+.footer-brand {
+  font-family: 'Poppins', sans-serif;
+  color: #333;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+/* ========================================
+   RESPONSIVE
+   ======================================== */
+@media (max-width: 900px) {
+  .login-content {
+    flex-direction: column;
+    gap: 40px;
+    padding: 24px;
+  }
+
+  .login-hero {
+    text-align: center;
+    max-width: 100%;
+  }
+
+  .hero-badge {
+    margin-bottom: 16px;
+  }
+
+  .hero-title {
+    font-size: 36px;
+  }
+
+  .hero-stats {
+    justify-content: center;
+  }
+
+  .hero-terminal {
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .login-box {
+    width: 100%;
+    max-width: 420px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-content {
+    padding: 16px;
+  }
+
+  .hero-title {
+    font-size: 28px;
+  }
+
+  .hero-stats {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .login-box {
+    padding: 28px;
+  }
+}

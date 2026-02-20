@@ -1,0 +1,126 @@
+{
+  "title": "Find All Strings That Are Isomorphic to a Given String",
+  "function_name": "find_isomorphic_strings",
+  "test_cases": [
+    {
+      "id": 1,
+      "input": [
+        "egg",
+        [
+          "add",
+          "foo",
+          "bar",
+          "paper"
+        ]
+      ],
+      "output": [
+        "add",
+        "foo"
+      ],
+      "is_sample": true
+    },
+    {
+      "id": 2,
+      "input": [
+        "paper",
+        [
+          "title",
+          "apple",
+          "apply",
+          "abcde"
+        ]
+      ],
+      "output": [
+        "title"
+      ],
+      "is_sample": true
+    },
+    {
+      "id": 3,
+      "input": [
+        "ab",
+        [
+          "cc",
+          "de",
+          "aa",
+          "ab"
+        ]
+      ],
+      "output": [
+        "de",
+        "ab"
+      ],
+      "is_sample": false
+    },
+    {
+      "id": 4,
+      "input": [
+        "foo",
+        [
+          "app",
+          "bar",
+          "xyz",
+          "mee"
+        ]
+      ],
+      "output": [
+        "app",
+        "mee"
+      ],
+      "is_sample": false
+    },
+    {
+      "id": 5,
+      "input": [
+        "abc",
+        [
+          "def",
+          "ghi",
+          "xyz",
+          "aaa"
+        ]
+      ],
+      "output": [
+        "def",
+        "ghi",
+        "xyz"
+      ],
+      "is_sample": false
+    },
+    {
+      "id": 6,
+      "input": [
+        "aab",
+        [
+          "xxy",
+          "xyz",
+          "yyx",
+          "aba"
+        ]
+      ],
+      "output": [
+        "xxy",
+        "yyx"
+      ],
+      "is_sample": false
+    },
+    {
+      "id": 7,
+      "input": [
+        "aaaa",
+        [
+          "bbbb",
+          "cccc",
+          "abcd",
+          "zzzz"
+        ]
+      ],
+      "output": [
+        "bbbb",
+        "cccc",
+        "zzzz"
+      ],
+      "is_sample": false
+    }
+  ]
+}

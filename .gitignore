@@ -1,0 +1,82 @@
+# ========================
+#  Python
+# ========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+*.so
+
+# Virtual environment
+backend/venv/
+venv/
+.venv/
+env/
+
+# ========================
+#  Node.js
+# ========================
+frontend/node_modules/
+frontend/.vite/
+frontend/dist/
+node_modules/
+
+# ========================
+#  IDE / Editor
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# ========================
+#  Environment / Secrets
+# ========================
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# ========================
+#  Logs
+# ========================
+logs/
+*.log
+
+# ========================
+#  Runtime / Temp
+# ========================
+temp/
+*.tmp
+
+# ========================
+#  Exports (generated)
+# ========================
+exports/results/
+exports/credentials/
+
+# ========================
+#  Database
+# ========================
+*.db
+*.sqlite3
+
+# ========================
+#  OS Files
+# ========================
+Thumbs.db
+Desktop.ini
+.DS_Store
+ehthumbs.db
+
+# ========================
+#  Claude Code
+# ========================
+.claude/

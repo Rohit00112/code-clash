@@ -1,0 +1,431 @@
+/* ========================================
+   IDE Component — Professional Code Editor
+   Inspired by VS Code / GitHub Codespaces
+   ======================================== */
+
+.ide {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  background: #1e1e1e;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* --- Top Bar --- */
+.ide-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  background: #252526;
+  border-bottom: 1px solid #1b1b1b;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.ide-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.ide-file-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 40px;
+  background: #1e1e1e;
+  border: none;
+  border-top: 2px solid #007acc;
+  font-size: 13px;
+  color: #ccc;
+  font-family: 'Poppins', -apple-system, sans-serif;
+  cursor: default;
+}
+
+.ide-file-icon {
+  font-size: 11px;
+  color: #888;
+  font-family: 'Fira Code', monospace;
+  background: #333;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 500;
+}
+
+.ide-file-name {
+  font-weight: 400;
+}
+
+.ide-topbar-center {
+  display: flex;
+  align-items: center;
+}
+
+.ide-lang-select {
+  padding: 4px 10px;
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 12px;
+  font-family: 'Poppins', -apple-system, sans-serif;
+  cursor: pointer;
+  outline: none;
+}
+
+.ide-lang-select:hover {
+  border-color: #555;
+}
+
+.ide-lang-select:focus {
+  border-color: #007acc;
+}
+
+.ide-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ide-action-btn {
+  padding: 5px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Poppins', -apple-system, sans-serif;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0.2px;
+}
+
+.ide-action-btn.run {
+  background: #2d5a2d;
+  color: #73c991;
+}
+
+.ide-action-btn.run:hover:not(:disabled) {
+  background: #356e35;
+}
+
+.ide-action-btn.submit {
+  background: #007acc;
+  color: #fff;
+}
+
+.ide-action-btn.submit:hover:not(:disabled) {
+  background: #1a8ad4;
+}
+
+.ide-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Body (editor + panel) --- */
+.ide-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.ide-editor-area {
+  flex: 1;
+  min-height: 300px;
+}
+
+/* --- Bottom Panel (Output / Terminal) --- */
+.ide-bottom-panel {
+  height: 240px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #333;
+  background: #1e1e1e;
+  flex-shrink: 0;
+}
+
+.ide-panel-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: #252526;
+  border-bottom: 1px solid #1b1b1b;
+  padding: 0 8px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.ide-panel-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #888;
+  font-size: 12px;
+  font-family: 'Poppins', -apple-system, sans-serif;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.1s;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ide-panel-tab:hover {
+  color: #ccc;
+}
+
+.ide-panel-tab.active {
+  color: #fff;
+  border-bottom-color: #007acc;
+}
+
+.ide-panel-dot {
+  width: 6px;
+  height: 6px;
+  background: #007acc;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* --- Output Panel --- */
+.ide-output-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  background: #1b1b1b;
+}
+
+.ide-output-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ide-output-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ide-output-panel::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.ide-output-empty {
+  color: #555;
+  font-size: 13px;
+  font-family: 'Fira Code', monospace;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.ide-output-lines {
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.ide-output-line {
+  color: #d4d4d4;
+  padding: 1px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ide-output-line.success {
+  color: #4ec9b0;
+}
+
+.ide-output-line.error {
+  color: #f14c4c;
+}
+
+.ide-output-line.info {
+  color: #569cd6;
+}
+
+.ide-output-line.detail {
+  color: #888;
+}
+
+/* --- Terminal Panel --- */
+.ide-terminal-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #0e0e0e;
+  min-height: 0;
+}
+
+.ide-terminal-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 16px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ide-terminal-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ide-terminal-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ide-terminal-scroll::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.ide-term-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.ide-term-line.cmd {
+  color: #ccc;
+}
+
+.ide-term-line.out {
+  color: #aaa;
+}
+
+.ide-term-line.err {
+  color: #f14c4c;
+}
+
+.ide-term-line.sys {
+  color: #569cd6;
+  font-style: italic;
+}
+
+.ide-term-prompt {
+  color: #6a9955;
+  font-weight: 600;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.ide-term-sys-icon {
+  color: #569cd6;
+  font-weight: 700;
+  font-style: normal;
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+}
+
+.ide-terminal-input-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 16px;
+  background: #161616;
+  border-top: 1px solid #252525;
+  flex-shrink: 0;
+}
+
+.ide-term-input-prompt {
+  color: #6a9955;
+  font-family: 'Fira Code', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  margin-right: 8px;
+  user-select: none;
+}
+
+.ide-terminal-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  outline: none;
+  caret-color: #007acc;
+}
+
+.ide-terminal-input::placeholder {
+  color: #3a3a3a;
+}
+
+/* --- Keyboard Shortcut Hints --- */
+.ide-shortcut {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.6;
+  margin-left: 6px;
+  font-family: 'Fira Code', monospace;
+  letter-spacing: 0;
+}
+
+/* --- Loading Spinner --- */
+.ide-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: ide-spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.ide-spinner.large {
+  width: 24px;
+  height: 24px;
+  border-width: 3px;
+  border-color: rgba(0, 122, 204, 0.3);
+  border-top-color: #007acc;
+}
+
+@keyframes ide-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- Loading Overlay --- */
+.ide-editor-area {
+  position: relative;
+}
+
+.ide-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(30, 30, 30, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  backdrop-filter: blur(2px);
+}
+
+.ide-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #ccc;
+  font-family: 'Poppins', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* --- Action Button Enhancement --- */
+.ide-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
