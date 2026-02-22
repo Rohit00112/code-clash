@@ -38,9 +38,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-codeclash_db}
       POSTGRES_USER: ${POSTGRES_USER:-codeclash}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_now}
-      SECRET_KEY: ${SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in your env file (e.g. .env.docker)}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in your env file (e.g. .env.docker)}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
       RUN_EMBEDDED_WORKER: ${RUN_EMBEDDED_WORKER:-true}
       DB_INIT_MODE: migrate
