@@ -1,0 +1,86 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: codeclash-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-codeclash_db}
+      POSTGRES_USER: ${POSTGRES_USER:-codeclash}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_now}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-codeclash} -d ${POSTGRES_DB:-codeclash_db}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: codeclash-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      WORKERS: ${BACKEND_WORKERS:-4}
+      ENVIRONMENT: production
+      DEBUG: "False"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codeclash}:${POSTGRES_PASSWORD:-change_me_now}@db:5432/${POSTGRES_DB:-codeclash_db}
+      SECRET_KEY: ${SECRET_KEY}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      RUN_EMBEDDED_WORKER: ${RUN_EMBEDDED_WORKER:-true}
+      DB_INIT_MODE: migrate
+      DB_REQUIRE_HEAD: "true"
+      QUESTIONS_DIR: /app/questions
+      TESTCASES_DIR: /app/testcases
+      EXPORTS_DIR: /app/exports
+      TEMP_DIR: /app/temp
+      LOG_FILE: /app/logs/app.log
+    volumes:
+      - questions_data:/app/questions
+      - testcases_data:/app/testcases
+      - exports_data:/app/exports
+      - temp_data:/app/temp
+      - logs_data:/app/logs
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://localhost:8000/health", timeout=5).read()
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api/v1
+    container_name: codeclash-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+
+volumes:
+  postgres_data:
+  questions_data:
+  testcases_data:
+  exports_data:
+  temp_data:
+  logs_data:

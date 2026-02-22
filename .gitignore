@@ -40,6 +40,7 @@ node_modules/
 #  Environment / Secrets
 # ========================
 .env
+.env.docker
 .env.local
 .env.*.local
 backend/.env
