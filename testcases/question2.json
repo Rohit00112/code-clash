@@ -1,40 +1,93 @@
 {
-  "title": "Sieve of Eratosthenes",
-  "function_name": "sieve_of_eratosthenes",
+  "title": "Find All Words That Are Anagrams of a Given String",
+  "function_name": "find_anagram_words",
   "test_cases": [
     {
-      "input": [10],
-      "output": [2, 3, 5, 7],
+      "id": 1,
+      "input": [
+        "listen",
+        [
+          "enlists",
+          "google",
+          "inlets",
+          "banana"
+        ]
+      ],
+      "output": [
+        "inlets"
+      ],
       "is_sample": true
     },
     {
-      "input": [1],
-      "output": [],
+      "id": 2,
+      "input": [
+        "race",
+        [
+          "care",
+          "acre",
+          "race",
+          "car"
+        ]
+      ],
+      "output": [
+        "care",
+        "acre",
+        "race"
+      ],
       "is_sample": true
     },
     {
-      "input": [2],
-      "output": [2],
+      "id": 3,
+      "input": [
+        "evil",
+        [
+          "vile",
+          "live",
+          "veil",
+          "vill"
+        ]
+      ],
+      "output": [
+        "vile",
+        "live",
+        "veil"
+      ],
       "is_sample": false
     },
     {
-      "input": [20],
-      "output": [2, 3, 5, 7, 11, 13, 17, 19],
+      "id": 4,
+      "input": [
+        "dust",
+        [
+          "stud",
+          "tuds",
+          "duts",
+          "dusty"
+        ]
+      ],
+      "output": [
+        "stud",
+        "tuds",
+        "duts"
+      ],
       "is_sample": false
     },
     {
-      "input": [50],
-      "output": [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47],
-      "is_sample": false
-    },
-    {
-      "input": [0],
-      "output": [],
-      "is_sample": false
-    },
-    {
-      "input": [100],
-      "output": [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97],
+      "id": 5,
+      "input": [
+        "abc",
+        [
+          "bac",
+          "cab",
+          "cba",
+          "abcd"
+        ]
+      ],
+      "output": [
+        "bac",
+        "cab",
+        "cba"
+      ],
       "is_sample": false
     }
   ]

@@ -8,6 +8,7 @@ import time
 import platform
 import threading
 import re
+import shutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from app.config import settings
@@ -57,6 +58,18 @@ class CodeExecutor:
 
     def _javac_vm_flags(self) -> List[str]:
         return [f"-J{flag}" for flag in self._java_vm_flags()]
+
+    def _node_vm_flags(self) -> List[str]:
+        """
+        Node/V8 flags tuned for constrained sandboxes.
+
+        We cap old-space explicitly so JS memory stays bounded even when
+        RLIMIT_AS is not enforced (V8 needs larger virtual address space
+        reservation for code ranges/JIT metadata).
+        """
+        limit_mb = max(64, int(self.memory_limit))
+        old_space_mb = max(32, min(512, int(limit_mb * 0.75)))
+        return [f"--max-old-space-size={old_space_mb}"]
 
     @staticmethod
     def _classify_error(stderr: str) -> str:
@@ -110,10 +123,10 @@ class CodeExecutor:
             resource.setrlimit(resource.RLIMIT_CPU, (cpu_soft, cpu_hard))
 
             # Address space.
-            # JVM-based tools (java/javac) can require larger virtual address space
-            # even when heap/code cache are constrained, so we do not hard-cap RLIMIT_AS
-            # for Java processes.
-            if language != "java":
+            # JVM and V8 (Node.js) may require larger virtual address reservations
+            # than their effective heap usage (code cache/code range metadata).
+            # We therefore avoid hard-capping RLIMIT_AS for these runtimes.
+            if language not in {"java", "javascript"}:
                 resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
 
             # Prevent fork bombs.
@@ -605,8 +618,180 @@ class __Runner {{
         return self._python_to_java_literal(str(value))
 
     def _create_c_cpp_harness(self, code: str, function_name: str, test_input: Any, language: str) -> str:
-        """Create C/C++ test harness"""
-        return code
+        """Create C/C++ test harness.
+
+        C execution is input-style (`main` required).
+        C++ supports both:
+          - input-style with `main`
+          - function-style (auto wrapper), even if template `main` is still present
+        """
+        has_main = re.search(r"\b(?:int|void)\s+main\s*\(", code) is not None
+        if language == "c":
+            if not has_main:
+                return (
+                    code
+                    + "\n\n#error \"C submissions must define main(). "
+                    + "Use input-style solution with int main(void)/int main().\""
+                )
+            return code
+
+        # C++ path
+        resolved_name = self._resolve_cpp_function_name(code, function_name)
+        function_defined = (
+            re.search(rf"\b{re.escape(resolved_name)}\s*\([^;{{}}]*\)\s*\{{", code) is not None
+        )
+
+        # If no target function is present, fallback to input-style execution.
+        if not function_defined:
+            if has_main:
+                return code
+            return (
+                code
+                + "\n\n#error \"C++ submissions must either define target function '"
+                + function_name
+                + "' (or camelCase variant) or provide main().\""
+            )
+
+        if isinstance(test_input, list):
+            arg_literals = [self._python_to_cpp_literal(item) for item in test_input]
+        else:
+            arg_literals = [self._python_to_cpp_literal(test_input)]
+        args_expr = ", ".join(arg_literals)
+
+        # If user kept template main(), rename it so harness main can drive function-style execution.
+        main_rename_prefix = "#define main __codex_user_main\n" if has_main else ""
+        main_rename_suffix = "\n#undef main\n" if has_main else ""
+
+        return f"""
+{main_rename_prefix}{code}{main_rename_suffix}
+
+#include <iostream>
+#include <limits>
+#include <sstream>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+namespace __codex_harness {{
+    static std::string escape(const std::string& s) {{
+        std::string out;
+        out.reserve(s.size());
+        for (char c : s) {{
+            switch (c) {{
+                case '\\\\': out += "\\\\\\\\"; break;
+                case '\"': out += "\\\\\\""; break;
+                case '\\n': out += "\\\\n"; break;
+                case '\\r': out += "\\\\r"; break;
+                case '\\t': out += "\\\\t"; break;
+                default: out += c; break;
+            }}
+        }}
+        return out;
+    }}
+
+    inline std::string to_json(const std::string& v) {{
+        return std::string("\\\"") + escape(v) + "\\\"";
+    }}
+
+    inline std::string to_json(const char* v) {{
+        return to_json(std::string(v ? v : ""));
+    }}
+
+    inline std::string to_json(bool v) {{
+        return v ? "true" : "false";
+    }}
+
+    template <typename T>
+    std::enable_if_t<std::is_arithmetic_v<T> && !std::is_same_v<T, bool>, std::string>
+    to_json(const T& v) {{
+        std::ostringstream oss;
+        oss << v;
+        return oss.str();
+    }}
+
+    template <typename T>
+    std::string to_json(const std::vector<T>& vec) {{
+        std::string out = "[";
+        for (size_t i = 0; i < vec.size(); ++i) {{
+            if (i) out += ",";
+            out += to_json(vec[i]);
+        }}
+        out += "]";
+        return out;
+    }}
+}}
+
+int main() {{
+    try {{
+        auto __invoke = [&]() -> decltype(auto) {{
+            return {resolved_name}({args_expr});
+        }};
+
+        if constexpr (std::is_void_v<decltype(__invoke())>) {{
+            __invoke();
+        }} else {{
+            auto __result = __invoke();
+            std::cout << __codex_harness::to_json(__result);
+        }}
+    }} catch (const std::exception& e) {{
+        std::cerr << "ERROR: " << e.what();
+        return 1;
+    }} catch (...) {{
+        std::cerr << "ERROR: Unknown exception";
+        return 1;
+    }}
+    return 0;
+}}
+"""
+
+    @staticmethod
+    def _snake_to_camel(name: str) -> str:
+        if "_" not in name:
+            return name
+        head, *tail = name.split("_")
+        return head + "".join(part.capitalize() for part in tail)
+
+    def _resolve_cpp_function_name(self, code: str, requested_name: str) -> str:
+        def looks_defined(name: str) -> bool:
+            return re.search(rf"\b{re.escape(name)}\s*\([^;{{}}]*\)\s*\{{", code) is not None
+
+        if looks_defined(requested_name):
+            return requested_name
+        camel = self._snake_to_camel(requested_name)
+        if camel != requested_name and looks_defined(camel):
+            return camel
+        return requested_name
+
+    def _python_to_cpp_literal(self, value: Any) -> str:
+        if value is None:
+            return "nullptr"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            if isinstance(value, float):
+                if value != value:
+                    return "std::numeric_limits<double>::quiet_NaN()"
+                if value == float("inf"):
+                    return "std::numeric_limits<double>::infinity()"
+                if value == float("-inf"):
+                    return "-std::numeric_limits<double>::infinity()"
+                return repr(value)
+            return str(value)
+        if isinstance(value, str):
+            escaped = (
+                value.replace("\\", "\\\\")
+                .replace('"', '\\"')
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+            )
+            return f"std::string(\"{escaped}\")"
+        if isinstance(value, list):
+            if not value:
+                return "std::vector<int>{}"
+            inner = ", ".join(self._python_to_cpp_literal(item) for item in value)
+            return f"std::vector{{{inner}}}"
+        return self._python_to_cpp_literal(str(value))
 
     def _create_javascript_harness(self, code: str, function_name: str, test_input: Any) -> str:
         """Create JavaScript test harness.
@@ -635,8 +820,419 @@ if (typeof {function_name} === 'function') {{
 """
 
     def _create_csharp_harness(self, code: str, function_name: str, test_input: Any) -> str:
-        """Create C# test harness"""
-        return code
+        """Create C# test harness."""
+        if isinstance(test_input, list):
+            arg_literals = [self._python_to_csharp_literal(item) for item in test_input]
+        else:
+            arg_literals = [self._python_to_csharp_literal(test_input)]
+        args_expr = ", ".join(arg_literals)
+        requested_name = (
+            function_name.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        )
+
+        return f"""
+{code}
+
+public class __Runner
+{{
+    private static string __SnakeToCamel(string name)
+    {{
+        if (string.IsNullOrEmpty(name) || !name.Contains("_")) return name;
+        string[] parts = name.Split('_');
+        if (parts.Length == 0) return name;
+        string head = parts[0];
+        for (int i = 1; i < parts.Length; i++)
+        {{
+            if (parts[i].Length == 0) continue;
+            head += char.ToUpperInvariant(parts[i][0]) + parts[i].Substring(1);
+        }}
+        return head;
+    }}
+
+    private static string __SnakeToPascal(string name)
+    {{
+        string camel = __SnakeToCamel(name);
+        if (string.IsNullOrEmpty(camel)) return camel;
+        return char.ToUpperInvariant(camel[0]) + camel.Substring(1);
+    }}
+
+    private static System.Collections.Generic.List<string> __CandidateMethodNames(string requested)
+    {{
+        var names = new System.Collections.Generic.List<string>();
+        if (!string.IsNullOrEmpty(requested))
+        {{
+            names.Add(requested);
+            names.Add(__SnakeToCamel(requested));
+            names.Add(__SnakeToPascal(requested));
+        }}
+
+        var dedup = new System.Collections.Generic.List<string>();
+        var seen = new System.Collections.Generic.HashSet<string>();
+        foreach (string n in names)
+        {{
+            if (string.IsNullOrEmpty(n)) continue;
+            if (seen.Add(n)) dedup.Add(n);
+        }}
+        return dedup;
+    }}
+
+    private static bool __IsNumericType(System.Type t)
+    {{
+        t = System.Nullable.GetUnderlyingType(t) ?? t;
+        return t == typeof(byte) || t == typeof(sbyte) ||
+               t == typeof(short) || t == typeof(ushort) ||
+               t == typeof(int) || t == typeof(uint) ||
+               t == typeof(long) || t == typeof(ulong) ||
+               t == typeof(float) || t == typeof(double) ||
+               t == typeof(decimal);
+    }}
+
+    private static bool __TryConvertArg(object value, System.Type targetType, out object converted)
+    {{
+        if (value == null)
+        {{
+            bool nullable = !targetType.IsValueType || System.Nullable.GetUnderlyingType(targetType) != null;
+            converted = null;
+            return nullable;
+        }}
+
+        System.Type nonNullTarget = System.Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+        if (nonNullTarget.IsInstanceOfType(value))
+        {{
+            converted = value;
+            return true;
+        }}
+
+        if (nonNullTarget == typeof(string) && value is char ch)
+        {{
+            converted = ch.ToString();
+            return true;
+        }}
+
+        if (nonNullTarget.IsArray && value is System.Array srcArray)
+        {{
+            System.Type elemType = nonNullTarget.GetElementType();
+            System.Array dst = System.Array.CreateInstance(elemType, srcArray.Length);
+            for (int i = 0; i < srcArray.Length; i++)
+            {{
+                object item = srcArray.GetValue(i);
+                object mapped;
+                if (!__TryConvertArg(item, elemType, out mapped))
+                {{
+                    converted = null;
+                    return false;
+                }}
+                dst.SetValue(mapped, i);
+            }}
+            converted = dst;
+            return true;
+        }}
+
+        if (nonNullTarget.IsGenericType &&
+            nonNullTarget.GetGenericTypeDefinition() == typeof(System.Collections.Generic.List<>) &&
+            value is System.Array srcListArray)
+        {{
+            System.Type elemType = nonNullTarget.GetGenericArguments()[0];
+            var list = (System.Collections.IList)System.Activator.CreateInstance(nonNullTarget);
+            for (int i = 0; i < srcListArray.Length; i++)
+            {{
+                object item = srcListArray.GetValue(i);
+                object mapped;
+                if (!__TryConvertArg(item, elemType, out mapped))
+                {{
+                    converted = null;
+                    return false;
+                }}
+                list.Add(mapped);
+            }}
+            converted = list;
+            return true;
+        }}
+
+        try
+        {{
+            if (__IsNumericType(nonNullTarget) && value is System.IConvertible)
+            {{
+                converted = System.Convert.ChangeType(
+                    value, nonNullTarget, System.Globalization.CultureInfo.InvariantCulture
+                );
+                return true;
+            }}
+        }}
+        catch
+        {{
+        }}
+
+        converted = null;
+        return false;
+    }}
+
+    private static System.Reflection.MethodInfo __FindMethod(
+        System.Type cls,
+        string name,
+        object[] args,
+        out object[] convertedArgs
+    )
+    {{
+        convertedArgs = null;
+        var methods = cls.GetMethods(
+            System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Static |
+            System.Reflection.BindingFlags.Instance
+        );
+
+        foreach (var method in methods)
+        {{
+            if (method.Name != name) continue;
+            var parameters = method.GetParameters();
+            if (parameters.Length != args.Length) continue;
+
+            object[] currentArgs = new object[args.Length];
+            bool ok = true;
+            for (int i = 0; i < parameters.Length; i++)
+            {{
+                object mapped;
+                if (!__TryConvertArg(args[i], parameters[i].ParameterType, out mapped))
+                {{
+                    ok = false;
+                    break;
+                }}
+                currentArgs[i] = mapped;
+            }}
+
+            if (ok)
+            {{
+                convertedArgs = currentArgs;
+                return method;
+            }}
+        }}
+
+        return null;
+    }}
+
+    private static bool __TryInvokeSolution(string requestedName, object[] args, out object result)
+    {{
+        result = null;
+        System.Type cls = typeof(Solution);
+        foreach (string candidate in __CandidateMethodNames(requestedName))
+        {{
+            object[] converted;
+            var method = __FindMethod(cls, candidate, args, out converted);
+            if (method == null) continue;
+            object receiver = method.IsStatic ? null : System.Activator.CreateInstance(cls);
+            result = method.Invoke(receiver, converted);
+            return true;
+        }}
+        return false;
+    }}
+
+    private static bool __TryInvokeMain()
+    {{
+        System.Type cls = typeof(Solution);
+        var methods = cls.GetMethods(
+            System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Static |
+            System.Reflection.BindingFlags.Instance
+        );
+
+        foreach (var method in methods)
+        {{
+            if (method.Name != "Main") continue;
+            var parameters = method.GetParameters();
+            object receiver = method.IsStatic ? null : System.Activator.CreateInstance(cls);
+            if (parameters.Length == 0)
+            {{
+                method.Invoke(receiver, new object[0]);
+                return true;
+            }}
+            if (parameters.Length == 1 && parameters[0].ParameterType == typeof(string[]))
+            {{
+                method.Invoke(receiver, new object[] {{ new string[0] }});
+                return true;
+            }}
+        }}
+        return false;
+    }}
+
+    private static string __Escape(string s)
+    {{
+        if (s == null) return "";
+        var sb = new System.Text.StringBuilder();
+        foreach (char c in s)
+        {{
+            switch (c)
+            {{
+                case '\\\\': sb.Append("\\\\\\\\"); break;
+                case '\"':
+                    sb.Append('\\\\');
+                    sb.Append('\"');
+                    break;
+                case '\\n': sb.Append("\\\\n"); break;
+                case '\\r': sb.Append("\\\\r"); break;
+                case '\\t': sb.Append("\\\\t"); break;
+                default: sb.Append(c); break;
+            }}
+        }}
+        return sb.ToString();
+    }}
+
+    private static string __ToJson(object obj)
+    {{
+        if (obj == null) return "null";
+        if (obj is string || obj is char)
+        {{
+            return "\\\"" + __Escape(System.Convert.ToString(obj)) + "\\\"";
+        }}
+        if (obj is bool)
+        {{
+            return ((bool)obj) ? "true" : "false";
+        }}
+        if (obj is byte || obj is sbyte || obj is short || obj is ushort ||
+            obj is int || obj is uint || obj is long || obj is ulong ||
+            obj is float || obj is double || obj is decimal)
+        {{
+            return System.Convert.ToString(obj, System.Globalization.CultureInfo.InvariantCulture);
+        }}
+        if (obj is System.Collections.IDictionary dict)
+        {{
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (System.Collections.DictionaryEntry entry in dict)
+            {{
+                string key = __ToJson(System.Convert.ToString(entry.Key));
+                string value = __ToJson(entry.Value);
+                parts.Add(key + ":" + value);
+            }}
+            return "{{" + string.Join(",", parts) + "}}";
+        }}
+        if (obj is System.Collections.IEnumerable enumerable && !(obj is string))
+        {{
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (object item in enumerable)
+            {{
+                parts.Add(__ToJson(item));
+            }}
+            return "[" + string.Join(",", parts) + "]";
+        }}
+        return "\\\"" + __Escape(System.Convert.ToString(obj)) + "\\\"";
+    }}
+
+    public static void Main(string[] args)
+    {{
+        try
+        {{
+            object[] __callArgs = new object[] {{ {args_expr} }};
+            object __result;
+            if (__TryInvokeSolution("{requested_name}", __callArgs, out __result))
+            {{
+                System.Console.WriteLine(__ToJson(__result));
+                return;
+            }}
+            if (__TryInvokeMain())
+            {{
+                return;
+            }}
+            throw new System.MissingMethodException(
+                "No matching solution method found for requested name '{requested_name}'."
+            );
+        }}
+        catch (System.Exception e)
+        {{
+            System.Console.Error.WriteLine("ERROR: " + e.Message);
+            System.Environment.Exit(1);
+        }}
+    }}
+}}
+"""
+
+    def _python_to_csharp_literal(self, value: Any) -> str:
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, float):
+            if value != value:
+                return "double.NaN"
+            if value == float("inf"):
+                return "double.PositiveInfinity"
+            if value == float("-inf"):
+                return "double.NegativeInfinity"
+            return repr(value)
+        if isinstance(value, str):
+            escaped = (
+                value.replace("\\", "\\\\")
+                .replace('"', '\\"')
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+            )
+            return f"\"{escaped}\""
+        if isinstance(value, list):
+            if not value:
+                return "new object[0]"
+            inner = ", ".join(self._python_to_csharp_literal(item) for item in value)
+            inferred = self._infer_csharp_value_type(value)
+            if inferred is not None:
+                return f"new {inferred} {{ {inner} }}"
+            return f"new object[] {{ {inner} }}"
+        if isinstance(value, dict):
+            pairs = []
+            for key, item in value.items():
+                pairs.append(
+                    "{ "
+                    + self._python_to_csharp_literal(key)
+                    + ", "
+                    + self._python_to_csharp_literal(item)
+                    + " }"
+                )
+            return (
+                "new System.Collections.Generic.Dictionary<object, object> { "
+                + ", ".join(pairs)
+                + " }"
+            )
+        return self._python_to_csharp_literal(str(value))
+
+    def _infer_csharp_value_type(self, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return "bool"
+        if isinstance(value, int):
+            return "int"
+        if isinstance(value, float):
+            return "double"
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, list):
+            if not value:
+                return None
+            first = self._infer_csharp_value_type(value[0])
+            if first is None:
+                return None
+            for item in value[1:]:
+                current = self._infer_csharp_value_type(item)
+                if current != first:
+                    return None
+            return f"{first}[]"
+        return None
+
+    @staticmethod
+    def _resolve_csharp_compiler() -> Optional[str]:
+        """
+        Resolve an available C# compiler command in the current runtime.
+        """
+        for compiler in ("csc", "mcs", "dmcs"):
+            if shutil.which(compiler):
+                return compiler
+        return None
 
     def _compile_if_needed(self, source_file: str, language: str, temp_dir: str) -> Tuple[Optional[str], Optional[str]]:
         """Compile code if necessary"""
@@ -644,14 +1240,33 @@ if (typeof {function_name} === 'function') {{
         if language in ["python", "javascript"]:
             return source_file, None  # Interpreted languages
 
-        output_file = os.path.join(temp_dir, "solution.exe" if platform.system() == "Windows" else "solution")
+        if language == "csharp":
+            output_file = os.path.join(temp_dir, "solution.exe")
+        else:
+            output_file = os.path.join(temp_dir, "solution.exe" if platform.system() == "Windows" else "solution")
 
         compile_commands = {
             "java": ["javac", *self._javac_vm_flags(), source_file],
             "c": ["gcc", source_file, "-o", output_file, "-lm"],
             "cpp": ["g++", source_file, "-o", output_file, "-std=c++17"],
-            "csharp": ["csc", f"/out:{output_file}", source_file]
         }
+
+        if language == "csharp":
+            compiler = self._resolve_csharp_compiler()
+            if not compiler:
+                return None, "No C# compiler found (expected one of: csc, mcs, dmcs)"
+            source_text = Path(source_file).read_text(encoding="utf-8", errors="ignore")
+            has_runner_main = "class __Runner" in source_text
+            if compiler == "csc":
+                compile_commands["csharp"] = [compiler]
+                if has_runner_main:
+                    compile_commands["csharp"].append("/main:__Runner")
+                compile_commands["csharp"].extend([f"/out:{output_file}", source_file])
+            else:
+                compile_commands["csharp"] = [compiler]
+                if has_runner_main:
+                    compile_commands["csharp"].append("-main:__Runner")
+                compile_commands["csharp"].extend([f"-out:{output_file}", source_file])
 
         if language not in compile_commands:
             return None, "Unsupported language"
@@ -696,7 +1311,14 @@ if (typeof {function_name} === 'function') {{
         elif language == "java":
             cmd = ["java", *self._java_vm_flags(), "-cp", temp_dir, "__Runner"]
         elif language == "javascript":
-            cmd = ["node", executable]
+            cmd = ["node", *self._node_vm_flags(), executable]
+        elif language == "csharp":
+            if platform.system() == "Windows":
+                cmd = [executable]
+            elif shutil.which("mono"):
+                cmd = ["mono", executable]
+            else:
+                cmd = [executable]
         else:
             cmd = [executable]
 
@@ -784,6 +1406,8 @@ if (typeof {function_name} === 'function') {{
                     full_code = self._create_python_raw_harness(code, function_name, test_input)
                 elif language == "java":
                     full_code = self._create_java_harness(code, function_name, test_input)
+                elif language in ["c", "cpp"]:
+                    full_code = self._create_c_cpp_harness(code, function_name, test_input, language)
                 elif language == "javascript":
                     full_code = self._create_javascript_raw_harness(code, function_name, test_input)
                 else:
