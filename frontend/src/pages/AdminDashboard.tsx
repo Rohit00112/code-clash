@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { key: 'submissions', label: 'Submissions' },
   { key: 'details', label: 'Code Review' },
   { key: 'leaderboard', label: 'Leaderboard' },
+  { key: 'audit', label: 'Audit Logs' },
   { key: 'manage', label: 'Settings' },
 ]
 
@@ -35,8 +36,10 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
   const [leaderboard, setLeaderboard] = useState<any[]>([])
   const [submissionDetails, setSubmissionDetails] = useState<any[]>([])
   const [challenges, setChallenges] = useState<any[]>([])
+  const [auditEvents, setAuditEvents] = useState<any[]>([])
   const [bulkUsernames, setBulkUsernames] = useState('')
   const [message, setMessage] = useState('')
+  const [challengeValidation, setChallengeValidation] = useState<any>(null)
   const [selectedSolution, setSelectedSolution] = useState<{user: string, question: string, code: string, language: string} | null>(null)
   const [selectedUser, setSelectedUser] = useState<any>(null)
 
@@ -61,6 +64,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
     loadLeaderboard()
     loadSubmissionDetails()
     loadChallenges()
+    loadAuditEvents()
   }
 
   const loadStatistics = async () => {
@@ -114,6 +118,15 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
       setChallenges(response.data || [])
     } catch (error) {
       setChallenges([])
+    }
+  }
+
+  const loadAuditEvents = async () => {
+    try {
+      const response = await api.get('/admin/audit-events?limit=100')
+      setAuditEvents(response.data || [])
+    } catch (error) {
+      setAuditEvents([])
     }
   }
 
@@ -216,6 +229,26 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
       setMessage(error.response?.data?.error || error.response?.data?.detail || 'Upload failed')
     } finally {
       setUploading(false)
+    }
+  }
+
+  const handleValidateChallenge = async () => {
+    const jsonFile = jsonInputRef.current?.files?.[0]
+    if (!jsonFile) {
+      setMessage('Select a JSON file first')
+      return
+    }
+
+    try {
+      const text = await jsonFile.text()
+      const parsed = JSON.parse(text)
+      const response = await api.post('/admin/challenges/validate', { testcase_json: parsed })
+      setChallengeValidation(response.data)
+      setMessage('Testcase JSON validated')
+      setTimeout(() => setMessage(''), 2500)
+    } catch (error: any) {
+      setChallengeValidation(null)
+      setMessage(error.response?.data?.error || error.message || 'Validation failed')
     }
   }
 
@@ -400,9 +433,24 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
                   <div className="form-hint">
                     JSON: {`{"function_name": "solve", "title": "Name", "test_cases": [{"id": 1, "input": [...], "output": ..., "is_sample": true}]}`}
                   </div>
-                  <button onClick={handleUploadChallenge} disabled={uploading} className="admin-btn primary">
-                    {uploading ? 'Uploading...' : 'Upload Challenge'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <button onClick={handleValidateChallenge} className="admin-btn secondary">
+                      Validate JSON
+                    </button>
+                    <button onClick={handleUploadChallenge} disabled={uploading} className="admin-btn primary">
+                      {uploading ? 'Uploading...' : 'Upload Challenge'}
+                    </button>
+                  </div>
+                  {challengeValidation && (
+                    <div className="form-hint" style={{ marginTop: 10 }}>
+                      Valid: {challengeValidation.total_test_cases} tests ({challengeValidation.sample_test_cases} sample / {challengeValidation.hidden_test_cases} hidden)
+                      {Array.isArray(challengeValidation.warnings) && challengeValidation.warnings.length > 0 && (
+                        <div style={{ marginTop: 6 }}>
+                          Warnings: {challengeValidation.warnings.join(' | ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -594,6 +642,45 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
                         <td>{entry.avg_execution_time?.toFixed(2)}s</td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Audit Logs */}
+          {activeTab === 'audit' && (
+            <div className="admin-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 className="admin-card-title">Audit Events</h3>
+                <button onClick={loadAuditEvents} className="admin-btn secondary">Refresh</button>
+              </div>
+              <div className="table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Admin</th>
+                      <th>Action</th>
+                      <th>Target</th>
+                      <th>IP</th>
+                      <th>Metadata</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditEvents.map((ev: any) => (
+                      <tr key={ev.id}>
+                        <td>{new Date(ev.created_at).toLocaleString()}</td>
+                        <td>{ev.username || ev.user_id || '-'}</td>
+                        <td>{ev.action}</td>
+                        <td>{[ev.target_type, ev.target_id].filter(Boolean).join(':') || '-'}</td>
+                        <td>{ev.ip_address || '-'}</td>
+                        <td style={{ maxWidth: 420, whiteSpace: 'pre-wrap' }}>{JSON.stringify(ev.metadata || {})}</td>
+                      </tr>
+                    ))}
+                    {auditEvents.length === 0 && (
+                      <tr><td colSpan={6} className="empty-state">No audit events yet</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>

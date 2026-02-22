@@ -21,7 +21,11 @@ class Submission(Base):
     max_score = Column(Integer, default=100)
     execution_time = Column(Float)
     memory_used = Column(Integer)
-    status = Column(String(20), default="pending", nullable=False)
+    status = Column(String(20), default="queued", nullable=False)
+    retry_count = Column(Integer, default=0, nullable=False)
+    error_type = Column(String(40))
+    error_message = Column(Text)
+    started_at = Column(DateTime(timezone=True))
     submitted_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True))
     
@@ -37,8 +41,9 @@ class Submission(Base):
         CheckConstraint('score >= 0 AND score <= 100', name='chk_score_range'),
         CheckConstraint('execution_time >= 0', name='chk_execution_time'),
         CheckConstraint('memory_used >= 0', name='chk_memory_used'),
+        CheckConstraint('retry_count >= 0', name='chk_retry_count'),
         CheckConstraint(
-            "status IN ('pending', 'running', 'completed', 'failed', 'timeout')",
+            "status IN ('queued', 'pending', 'running', 'completed', 'failed', 'timeout')",
             name='chk_status'
         ),
     )
@@ -58,6 +63,10 @@ class Submission(Base):
             "execution_time": self.execution_time,
             "memory_used": self.memory_used,
             "status": self.status,
+            "retry_count": self.retry_count,
+            "error_type": self.error_type,
+            "error_message": self.error_message,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
             "submitted_at": self.submitted_at.isoformat() if self.submitted_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None
         }

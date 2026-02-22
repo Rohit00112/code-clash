@@ -62,6 +62,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     to_encode.update({
         "exp": expire,
         "iat": datetime.utcnow(),
+        "typ": "access",
         "jti": secrets.token_urlsafe(32)  # Unique token ID
     })
     
@@ -81,7 +82,41 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("typ") and payload.get("typ") != "access":
+            return None
         return payload
+    except JWTError:
+        return None
+
+
+def create_refresh_token(
+    data: Dict[str, Any],
+    family_id: str,
+    expires_delta: Optional[timedelta] = None
+) -> str:
+    """
+    Create refresh token with family metadata for rotation.
+    """
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (
+        expires_delta if expires_delta else timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    )
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.utcnow(),
+        "typ": "refresh",
+        "fam": family_id,
+        "jti": secrets.token_urlsafe(48)
+    })
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_token(token: str) -> Optional[Dict[str, Any]]:
+    """
+    Decode token payload (access or refresh).
+    """
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:
         return None
 

@@ -119,11 +119,20 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
         code
       })
       const result = response.data
-      if (result?.error) {
-        setOutput(result.error)
-      } else {
-        setOutput(result?.output || '(No output)')
+      const lines: string[] = []
+      lines.push(`Exit Code: ${result?.exit_code ?? 0}`)
+      lines.push(`Execution: ${result?.execution_time_ms ?? 0} ms`)
+      if (result?.error_type) lines.push(`Error Type: ${result.error_type}`)
+      if (result?.stdout) {
+        lines.push('--- STDOUT ---')
+        lines.push(result.stdout)
       }
+      if (result?.stderr) {
+        lines.push('--- STDERR ---')
+        lines.push(result.stderr)
+      }
+      if (!result?.stdout && !result?.stderr) lines.push('(No output)')
+      setOutput(lines.join('\n'))
     } catch (error: any) {
       setOutput('Error: ' + (error.response?.data?.error || 'Test run failed'))
     } finally {
@@ -150,9 +159,37 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
         language,
         code
       })
-      const result = response.data
-      setOutput((result?.message || 'Submission successful') + (result?.output ? '\n\nOutput:\n' + result.output : ''))
-      loadMySubmissions()
+      const result = response.data || {}
+      const submissionId = result?.submission_id
+      setOutput(`Submission queued (ID: ${submissionId}). Waiting for judge...`)
+
+      if (submissionId) {
+        let done = false
+        for (let i = 0; i < 60; i++) {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          const statusResp = await api.get(`/submissions/${submissionId}`)
+          const sub = statusResp.data
+          if (sub?.status === 'queued' || sub?.status === 'running' || sub?.status === 'pending') {
+            setOutput(`Submission ${submissionId}: ${sub.status}...`)
+            continue
+          }
+          done = true
+          const lines: string[] = []
+          lines.push(`Submission ${submissionId}: ${sub?.status || 'unknown'}`)
+          if (typeof sub?.score === 'number') lines.push(`Score: ${sub.score}/${sub.max_score ?? 100}`)
+          if (sub?.execution_time !== undefined && sub?.execution_time !== null) {
+            lines.push(`Execution Time: ${sub.execution_time}s`)
+          }
+          if (sub?.error_type) lines.push(`Error Type: ${sub.error_type}`)
+          if (sub?.error_message) lines.push(`Error: ${sub.error_message}`)
+          setOutput(lines.join('\n'))
+          break
+        }
+        if (!done) {
+          setOutput(`Submission ${submissionId} is still in queue. Check Submissions tab for updates.`)
+        }
+      }
+      await loadMySubmissions()
     } catch (error: any) {
       setOutput('Error: ' + (error.response?.data?.error || 'Submission failed'))
     } finally {

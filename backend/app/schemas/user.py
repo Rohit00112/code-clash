@@ -83,6 +83,17 @@ class UserCredentials(BaseModel):
 class TokenResponse(BaseModel):
     """JWT token response"""
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
     expires_in: int
     user: UserResponse
+
+
+class RefreshTokenRequest(BaseModel):
+    """Refresh token rotation request"""
+    refresh_token: str = Field(..., min_length=20)
+
+
+class LogoutRequest(BaseModel):
+    """Optional refresh token revocation request"""
+    refresh_token: Optional[str] = None

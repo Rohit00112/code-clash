@@ -24,6 +24,8 @@ class User(Base):
     # Relationships
     drafts = relationship("CodeDraft", back_populates="user", cascade="all, delete-orphan")
     submissions = relationship("Submission", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship("RefreshToken", cascade="all, delete-orphan")
+    audit_events = relationship("AuditEvent")
     
     __table_args__ = (
         Index('idx_users_username', 'username'),

@@ -1,7 +1,7 @@
 """Challenge schemas"""
 
 from pydantic import BaseModel
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 
 
 class TestCaseResponse(BaseModel):
@@ -37,6 +37,21 @@ class ChallengeDetailResponse(BaseModel):
     sample_test_cases: int
     hidden_test_cases: int
     max_score: int
+
+
+class ChallengeValidateRequest(BaseModel):
+    """Validate challenge testcase JSON without saving."""
+    testcase_json: Dict[str, Any]
+
+
+class ChallengeValidateResponse(BaseModel):
+    """Challenge validation result."""
+    valid: bool
+    function_name: str
+    total_test_cases: int
+    sample_test_cases: int
+    hidden_test_cases: int
+    warnings: List[str]
 
 
 class LeaderboardEntry(BaseModel):

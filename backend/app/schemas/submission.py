@@ -47,6 +47,10 @@ class SubmissionResponse(BaseModel):
     execution_time: Optional[float]
     memory_used: Optional[int]
     status: str
+    retry_count: int = 0
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+    started_at: Optional[datetime]
     submitted_at: Optional[datetime]
     completed_at: Optional[datetime]
     test_results: Optional[List[TestResultResponse]] = None
@@ -89,14 +93,18 @@ class TestRunRequest(BaseModel):
 
 
 class TestRunResponse(BaseModel):
-    """Test run response - participant sees only their output"""
-    output: str  # What user's code printed (stdout)
-    error: Optional[str] = None  # Compilation/runtime error if any
+    """Test run response with structured execution payload."""
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int = 0
+    execution_time_ms: int = 0
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 class ParticipantSubmitResponse(BaseModel):
-    """Submit response for participant - no scores exposed"""
+    """Queued submit response for participant."""
     success: bool = True
-    message: str = "Submission successful"
-    output: str = ""  # User's code output from sample run
-
+    submission_id: int
+    status: str = "queued"
+    message: str = "Submission queued for evaluation"

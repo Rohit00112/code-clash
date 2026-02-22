@@ -5,37 +5,37 @@
     {
       "input": [[900, 940, 950, 1100, 1500, 1800], [910, 1200, 1120, 1130, 1900, 2000]],
       "output": 3,
-      "sample": true
+      "is_sample": true
     },
     {
       "input": [[900, 1100, 1235], [1000, 1200, 1240]],
       "output": 1,
-      "sample": true
+      "is_sample": true
     },
     {
       "input": [[100, 100, 100], [200, 200, 200]],
       "output": 3,
-      "sample": false
+      "is_sample": false
     },
     {
       "input": [[900], [1000]],
       "output": 1,
-      "sample": false
+      "is_sample": false
     },
     {
       "input": [[200, 210, 300, 320, 350], [230, 240, 320, 430, 400]],
       "output": 2,
-      "sample": false
+      "is_sample": false
     },
     {
       "input": [[100, 200, 300, 400], [110, 210, 310, 410]],
       "output": 1,
-      "sample": false
+      "is_sample": false
     },
     {
       "input": [[100, 100, 100, 100, 100], [500, 500, 500, 500, 500]],
       "output": 5,
-      "sample": false
+      "is_sample": false
     }
   ]
 }

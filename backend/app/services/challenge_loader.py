@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from app.config import settings
 from app.core.exceptions import ResourceNotFoundError, FileSystemError
+from app.services.testcase_validator import testcase_validator
 import logging
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class ChallengeLoader:
                         # Load test case metadata
                         with open(testcase_path, 'r', encoding='utf-8') as f:
                             testcase_data = json.load(f)
+                        normalized_data, _ = testcase_validator.validate_and_normalize(testcase_data)
                         
                         # Extract question number
                         question_number = int(question_id.replace("question", ""))
@@ -66,13 +68,15 @@ class ChallengeLoader:
                         questions.append({
                             "id": question_id,
                             "number": question_number,
-                            "title": testcase_data.get("title", f"Challenge {question_number}"),
-                            "function_name": testcase_data.get("function_name", "solution"),
+                            "title": normalized_data.get("title", f"Challenge {question_number}"),
+                            "function_name": normalized_data.get("function_name", "solution"),
                             "pdf_path": str(pdf_path),
                             "testcase_path": str(testcase_path),
                             "pdf_available": True,
-                            "total_test_cases": len(testcase_data.get("test_cases", [])),
-                            "sample_test_cases": sum(1 for tc in testcase_data.get("test_cases", []) if tc.get("is_sample", False)),
+                            "total_test_cases": len(normalized_data.get("test_cases", [])),
+                            "sample_test_cases": sum(
+                                1 for tc in normalized_data.get("test_cases", []) if tc.get("is_sample", False)
+                            ),
                             "max_score": 100  # Default score
                         })
                         
@@ -124,14 +128,12 @@ class ChallengeLoader:
         try:
             with open(testcase_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
-            # Auto-mark first 2 as sample if not specified
+
+            data, warnings = testcase_validator.validate_and_normalize(data)
+            for warning in warnings:
+                logger.warning("Question %s testcase warning: %s", question_id, warning)
+
             test_cases = data.get("test_cases", [])
-            for idx, tc in enumerate(test_cases):
-                if "is_sample" not in tc:
-                    tc["is_sample"] = idx < 2
-                if "id" not in tc:
-                    tc["id"] = idx + 1
             
             return {
                 "function_name": data.get("function_name", "solution"),
@@ -204,10 +206,11 @@ class ChallengeLoader:
         pdf_path = self.questions_dir / f"{question_id}.pdf"
         testcase_path = self.testcases_dir / f"{question_id}.json"
 
+        normalized, _ = testcase_validator.validate_and_normalize(testcase_json)
         pdf_path.write_bytes(pdf_bytes)
 
         with open(testcase_path, 'w', encoding='utf-8') as f:
-            json.dump(testcase_json, f, indent=2, ensure_ascii=False)
+            json.dump(normalized, f, indent=2, ensure_ascii=False)
 
         self.invalidate_cache()
         logger.info(f"Saved question: {question_id}")

@@ -31,7 +31,12 @@ function App() {
   }
 
   const handleLogout = () => {
+    const refreshToken = localStorage.getItem('refresh_token')
+    if (refreshToken) {
+      api.post('/auth/logout', { refresh_token: refreshToken }).catch(() => {})
+    }
     localStorage.removeItem('token')
+    localStorage.removeItem('refresh_token')
     setUser(null)
   }
 

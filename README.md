@@ -12,8 +12,11 @@ Built for **Itahari International College — Creative Clash 2026**.
 - **Integrated Terminal** — Install pip packages, run/submit from terminal
 - **Keyboard Shortcuts** — `Ctrl+Enter` to run, `Ctrl+Shift+Enter` to submit
 - **Auto-save Drafts** — Code is saved every 2 seconds
+- **Async Judging Queue** — submissions are queued and processed by a background worker
+- **Refresh Token Rotation** — secure session renewal with token-family revocation
 - **Admin Dashboard** — Upload challenges, bulk import users, export Excel results
 - **Optimized for 50+ concurrent users** — Connection pooling, execution semaphore, GZip compression
+- **Operational Telemetry** — `/health` readiness checks and `/metrics` for Prometheus
 
 ## Tech Stack
 
@@ -33,6 +36,48 @@ Built for **Itahari International College — Creative Clash 2026**.
 - For C/C++: `gcc`/`g++` installed
 - For Java: `javac` + `java` installed
 - For C#: `csc` installed (optional)
+
+## Docker Deployment (Full Stack)
+
+Run frontend + backend + PostgreSQL with one command.
+
+### 1. Configure Docker env
+
+```bash
+cp .env.docker.example .env.docker
+```
+
+Edit `.env.docker` and set strong values for:
+- `POSTGRES_PASSWORD`
+- `SECRET_KEY` (generate with `openssl rand -hex 32`)
+- `ADMIN_PASSWORD`
+- `CORS_ORIGINS` (set your server/domain origin)
+
+### 2. Build and start
+
+```bash
+docker compose --env-file .env.docker up -d --build
+```
+
+### 3. Verify
+
+```bash
+docker compose --env-file .env.docker ps
+docker compose --env-file .env.docker logs -f backend
+```
+
+Open `http://YOUR_SERVER_IP:3000` (or your configured `FRONTEND_PORT`).
+
+### 4. Stop
+
+```bash
+docker compose --env-file .env.docker down
+```
+
+Notes:
+- Database and app data persist in Docker volumes (`postgres_data`, `questions_data`, `testcases_data`, etc.).
+- Backend runs migrations automatically on startup.
+- Queue worker runs embedded in backend (`RUN_EMBEDDED_WORKER=true`).
 
 ## Quick Start
 
@@ -74,6 +119,9 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env — set your DATABASE_URL:
 #   DATABASE_URL=postgresql://postgres:yourpassword@localhost:5432/code
+
+# Apply DB migrations (when DB_INIT_MODE=migrate)
+alembic upgrade head
 ```
 
 ### 4. Frontend
@@ -85,9 +133,9 @@ npm install
 
 ### 5. Run
 
-Open **two terminals**:
+Open **three terminals**:
 
-**Terminal 1 — Backend:**
+**Terminal 1 — Backend API:**
 ```bash
 cd backend
 venv\Scripts\activate.bat   # or source venv/bin/activate
@@ -95,7 +143,14 @@ python run.py
 ```
 Backend starts at `http://localhost:8000`
 
-**Terminal 2 — Frontend:**
+**Terminal 2 — Worker:**
+```bash
+cd backend
+venv\Scripts\activate.bat   # or source venv/bin/activate
+python run_worker.py
+```
+
+**Terminal 3 — Frontend:**
 ```bash
 cd frontend
 npm run dev
@@ -151,6 +206,14 @@ Open `http://localhost:3000` in your browser.
 | `is_sample: true` | Visible to participants during "Run Code" |
 | `is_sample: false` | Hidden — only used during "Submit" for scoring |
 
+Backward compatibility:
+- Legacy `sample` is accepted and normalized to `is_sample`.
+
+Optional testcase metadata:
+- `name`: short testcase label
+- `weight`: numeric weight for scoring extensions
+- `timeout_ms`: per-test timeout override (future extension)
+
 ### How Participants Can Write Code
 
 Participants can use **either** approach — the platform auto-detects:
@@ -179,6 +242,21 @@ score = (passed_test_cases / total_test_cases) * 100
 ```
 
 If a challenge has 7 test cases and a participant passes 5, their score is `71`.
+
+### Async Submission Lifecycle
+
+`POST /submissions/submit` now queues submissions and returns immediately:
+
+```json
+{
+  "success": true,
+  "submission_id": 42,
+  "status": "queued",
+  "message": "Submission queued for evaluation"
+}
+```
+
+Status values: `queued`, `running`, `completed`, `failed`, `timeout`.
 
 ### Manage Users
 
@@ -253,15 +331,46 @@ Copy `backend/.env.example` to `backend/.env` and configure:
 |----------|---------|-------------|
 | `DATABASE_URL` | — | PostgreSQL connection string |
 | `SECRET_KEY` | — | JWT signing key (use `openssl rand -hex 32`) |
-| `DEBUG` | `True` | Enable debug mode + hot reload |
+| `DEBUG` | `False` | Enable debug mode |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8000` | Server port |
 | `WORKERS` | `4` | Uvicorn workers (production) |
 | `CODE_EXECUTION_TIMEOUT` | `5` | Max seconds per code execution |
 | `MAX_CODE_SIZE` | `51200` | Max code size in bytes |
+| `DB_INIT_MODE` | `migrate` | DB startup mode: `migrate`, `create_all`, `off` |
+| `ENABLE_TERMINAL_INSTALLS` | `false` | Allow participant `pip install` |
+| `RUN_EMBEDDED_WORKER` | `true` | Start worker thread inside API process |
 | `ADMIN_USERNAME` | `admin` | Default admin username |
-| `ADMIN_PASSWORD` | `admin123` | Default admin password |
+| `ADMIN_PASSWORD` | `change_this_password_immediately` | Default admin password |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins |
+
+## Security Notes
+
+- In production, startup fails if insecure defaults are used for `SECRET_KEY` or `ADMIN_PASSWORD`.
+- Refresh tokens are rotated on every refresh call and tracked by token family.
+- Terminal installs are allowlisted and quota-limited.
+
+## Developer Commands
+
+```bash
+# Run migrations (required when DB_INIT_MODE=migrate)
+cd backend
+alembic upgrade head
+
+# API server
+python run.py
+
+# Worker (if not using embedded worker)
+python run_worker.py
+
+# Backend tests
+python -m pytest -q
+
+# Frontend checks
+cd ../frontend
+npm run typecheck
+npm run build
+```
 
 ## LAN Deployment (Contest Day)
 
@@ -274,45 +383,40 @@ To let participants on the same network access the platform:
    CORS_ORIGINS=["http://YOUR_IP:3000","http://localhost:3000"]
    ```
 
-2. Find your server IP:
-   ```bash
-   # Windows
-   ipconfig
-   # Linux
-   ip addr
+2. Set in `frontend/.env`:
+   ```
+   VITE_API_BASE_URL=http://YOUR_IP:8000/api/v1
    ```
 
-3. Update `frontend/src/services/api.ts`:
-   ```ts
-   baseURL: 'http://YOUR_IP:8000/api/v1'
-   ```
-
-4. Start both servers:
+3. Start backend + worker + frontend:
    ```bash
-   # Backend
    cd backend && python run.py
-
-   # Frontend (expose to network)
+   cd backend && python run_worker.py
    cd frontend && npx vite --host
    ```
 
-5. Participants open `http://YOUR_IP:3000` in their browser
+4. Participants open `http://YOUR_IP:3000`.
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/v1/auth/login` | Login |
+| POST | `/api/v1/auth/login` | Login (access + refresh token) |
+| POST | `/api/v1/auth/refresh` | Rotate refresh token |
 | GET | `/api/v1/challenges` | List challenges |
 | GET | `/api/v1/challenges/{id}/pdf` | Download problem PDF |
-| POST | `/api/v1/submissions/test-run` | Run code (sample tests) |
-| POST | `/api/v1/submissions/submit` | Submit for grading |
+| POST | `/api/v1/submissions/test-run` | Run code with structured output |
+| POST | `/api/v1/submissions/submit` | Queue submission for grading |
+| GET | `/api/v1/submissions/{id}` | Submission status/details |
 | POST | `/api/v1/drafts/save` | Auto-save draft |
-| POST | `/api/v1/terminal/execute` | Run terminal command (pip install) |
+| POST | `/api/v1/terminal/execute` | Controlled terminal installs |
 | GET | `/api/v1/admin/statistics` | Platform stats |
 | POST | `/api/v1/admin/bulk-import` | Bulk create users |
-| GET | `/api/v1/admin/export-results` | Export Excel |
+| POST | `/api/v1/admin/challenges/validate` | Validate testcase JSON |
 | POST | `/api/v1/admin/challenges/upload` | Upload challenge |
+| GET | `/api/v1/admin/audit-events` | Audit trail |
+| GET | `/health` | Readiness/health details |
+| GET | `/metrics` | Prometheus metrics |
 
 Full API docs available at `http://localhost:8000/api/docs` when `DEBUG=True`.
 

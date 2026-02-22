@@ -1,6 +1,6 @@
 """Submission routes - code submission and testing"""
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Request
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
@@ -11,12 +11,14 @@ from app.schemas.submission import (
     SubmissionResponse,
     TestRunRequest,
     TestRunResponse,
-    SubmissionListResponse,
     ParticipantSubmissionListResponse,
     ParticipantSubmitResponse
 )
 from app.api.deps import get_current_user, get_current_admin_user
 from app.models.user import User
+from app.config import settings
+from app.services.rate_limiter import rate_limiter
+from app.core.exceptions import RateLimitExceededError
 
 router = APIRouter()
 
@@ -24,6 +26,7 @@ router = APIRouter()
 @router.post("/test-run", response_model=TestRunResponse)
 def test_run(
     request: TestRunRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -38,6 +41,14 @@ def test_run(
     Returns:
         Test run results
     """
+    ip = http_request.client.host if http_request.client else "unknown"
+    min_key = f"highcost:min:test-run:{ip}:{current_user.id}"
+    hour_key = f"highcost:hour:test-run:{ip}:{current_user.id}"
+    if not rate_limiter.allow(min_key, settings.HIGH_COST_RATE_LIMIT_PER_MINUTE, 60):
+        raise RateLimitExceededError("Too many test runs. Please wait a minute.")
+    if not rate_limiter.allow(hour_key, settings.HIGH_COST_RATE_LIMIT_PER_HOUR, 3600):
+        raise RateLimitExceededError("Hourly test-run limit reached. Please try later.")
+
     from app.services.submission_service import submission_service
     
     results = submission_service.test_run(
@@ -49,14 +60,19 @@ def test_run(
     )
     
     return TestRunResponse(
-        output=results.get("output", ""),
-        error=results.get("error")
+        stdout=results.get("stdout", ""),
+        stderr=results.get("stderr", ""),
+        exit_code=results.get("exit_code", 0),
+        execution_time_ms=results.get("execution_time_ms", 0),
+        error_type=results.get("error_type"),
+        error_message=results.get("error_message"),
     )
 
 
 @router.post("/submit", response_model=ParticipantSubmitResponse, status_code=status.HTTP_201_CREATED)
 def submit_code(
     submission: SubmissionCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -71,6 +87,14 @@ def submit_code(
     Returns:
         Submission result
     """
+    ip = request.client.host if request.client else "unknown"
+    min_key = f"highcost:min:submit:{ip}:{current_user.id}"
+    hour_key = f"highcost:hour:submit:{ip}:{current_user.id}"
+    if not rate_limiter.allow(min_key, settings.HIGH_COST_RATE_LIMIT_PER_MINUTE, 60):
+        raise RateLimitExceededError("Too many submissions. Please wait a minute.")
+    if not rate_limiter.allow(hour_key, settings.HIGH_COST_RATE_LIMIT_PER_HOUR, 3600):
+        raise RateLimitExceededError("Hourly submission limit reached. Please try later.")
+
     from app.services.submission_service import submission_service
     
     result = submission_service.submit_code(
@@ -205,3 +229,18 @@ def delete_submission(
     db.delete(submission)
     db.commit()
     return {"success": True, "message": "Submission deleted"}
+    ip = http_request.client.host if http_request.client else "unknown"
+    min_key = f"highcost:min:test-run:{ip}:{current_user.id}"
+    hour_key = f"highcost:hour:test-run:{ip}:{current_user.id}"
+    if not rate_limiter.allow(min_key, settings.HIGH_COST_RATE_LIMIT_PER_MINUTE, 60):
+        raise RateLimitExceededError("Too many test runs. Please wait a minute.")
+    if not rate_limiter.allow(hour_key, settings.HIGH_COST_RATE_LIMIT_PER_HOUR, 3600):
+        raise RateLimitExceededError("Hourly test-run limit reached. Please try later.")
+
+    ip = request.client.host if request.client else "unknown"
+    min_key = f"highcost:min:submit:{ip}:{current_user.id}"
+    hour_key = f"highcost:hour:submit:{ip}:{current_user.id}"
+    if not rate_limiter.allow(min_key, settings.HIGH_COST_RATE_LIMIT_PER_MINUTE, 60):
+        raise RateLimitExceededError("Too many submissions. Please wait a minute.")
+    if not rate_limiter.allow(hour_key, settings.HIGH_COST_RATE_LIMIT_PER_HOUR, 3600):
+        raise RateLimitExceededError("Hourly submission limit reached. Please try later.")

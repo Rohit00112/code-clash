@@ -76,8 +76,9 @@ export default function Login({ onLogin }: LoginProps) {
 
     try {
       const response = await api.post('/auth/login', { username, password })
-      const { access_token, user } = response.data
+      const { access_token, refresh_token, user } = response.data
       localStorage.setItem('token', access_token)
+      if (refresh_token) localStorage.setItem('refresh_token', refresh_token)
       onLogin(user)
     } catch (err: any) {
       const data = err.response?.data

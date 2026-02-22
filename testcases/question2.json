@@ -5,37 +5,37 @@
     {
       "input": [10],
       "output": [2, 3, 5, 7],
-      "sample": true
+      "is_sample": true
     },
     {
       "input": [1],
       "output": [],
-      "sample": true
+      "is_sample": true
     },
     {
       "input": [2],
       "output": [2],
-      "sample": false
+      "is_sample": false
     },
     {
       "input": [20],
       "output": [2, 3, 5, 7, 11, 13, 17, 19],
-      "sample": false
+      "is_sample": false
     },
     {
       "input": [50],
       "output": [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47],
-      "sample": false
+      "is_sample": false
     },
     {
       "input": [0],
       "output": [],
-      "sample": false
+      "is_sample": false
     },
     {
       "input": [100],
       "output": [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97],
-      "sample": false
+      "is_sample": false
     }
   ]
 }

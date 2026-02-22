@@ -6,16 +6,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text
 from datetime import datetime
 from pathlib import Path
 import logging
 import traceback
 import time
+import uuid
+
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from fastapi.responses import Response
 
 from app.config import settings
-from app.core.database import init_db
+from app.core.database import init_db, SessionLocal
 from app.core.exceptions import BaseAPIException
 from app.api.v1 import auth, users, challenges, submissions, drafts, admin, terminal
+from app.services.submission_worker import submission_worker
 
 # Configure logging - ensure log directory exists
 _log_dir = Path(settings.get_log_file()).parent
@@ -30,6 +36,19 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+REQUEST_COUNT = Counter(
+    "codeclash_http_requests_total",
+    "Total HTTP requests",
+    ["method", "path", "status"],
+)
+REQUEST_LATENCY = Histogram(
+    "codeclash_http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "path"],
+)
+QUEUE_DEPTH_GAUGE = Gauge("codeclash_submission_queue_depth", "Number of queued submissions")
+WORKER_UP_GAUGE = Gauge("codeclash_worker_up", "Worker liveness (1 running, 0 stopped)")
 
 # Create FastAPI app
 app = FastAPI(
@@ -57,6 +76,9 @@ app.add_middleware(
 @app.middleware("http")
 async def add_headers_and_timing(request: Request, call_next):
     """Add security headers and log slow requests"""
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+
     start = time.time()
     response = await call_next(request)
     duration = time.time() - start
@@ -65,9 +87,19 @@ async def add_headers_and_timing(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Request-ID"] = request_id
+
+    REQUEST_COUNT.labels(request.method, request.url.path, str(response.status_code)).inc()
+    REQUEST_LATENCY.labels(request.method, request.url.path).observe(duration)
 
     if duration > 1.0:
-        logger.warning(f"Slow request: {request.method} {request.url.path} took {duration:.2f}s")
+        logger.warning(
+            "Slow request: %s %s took %.2fs request_id=%s",
+            request.method,
+            request.url.path,
+            duration,
+            request_id,
+        )
 
     return response
 
@@ -176,6 +208,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup"""
+    settings.validate_security_settings()
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     
@@ -186,7 +219,7 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
         raise
-    
+
     # Create admin user if doesn't exist
     try:
         from app.core.database import SessionLocal
@@ -211,11 +244,18 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to create admin user: {e}")
 
+    if settings.RUN_EMBEDDED_WORKER:
+        submission_worker.start()
+        WORKER_UP_GAUGE.set(1)
+
 
 # Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
+    if submission_worker.is_running():
+        submission_worker.stop()
+    WORKER_UP_GAUGE.set(0)
     logger.info(f"Shutting down {settings.APP_NAME}")
 
 
@@ -223,11 +263,39 @@ async def shutdown_event():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    db_ok = True
+    db_error = None
+    queue_depth = 0
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        queue_depth = submission_worker.queue_depth(db)
+    except Exception as exc:
+        db_ok = False
+        db_error = str(exc)
+    finally:
+        db.close()
+
+    QUEUE_DEPTH_GAUGE.set(queue_depth)
+    worker_status = submission_worker.status()
+    WORKER_UP_GAUGE.set(1 if worker_status["running"] else 0)
+
     return {
-        "status": "healthy",
+        "status": "healthy" if db_ok else "degraded",
         "version": settings.APP_VERSION,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "readiness": {
+            "database": {"ok": db_ok, "error": db_error},
+            "worker": worker_status,
+            "queue_depth": queue_depth,
+        },
     }
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # Root endpoint
