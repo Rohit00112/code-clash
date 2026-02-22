@@ -7,6 +7,7 @@ import json
 import time
 import platform
 import threading
+import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from app.config import settings
@@ -35,6 +36,27 @@ class CodeExecutor:
         self.memory_limit = settings.CODE_EXECUTION_MEMORY_LIMIT
         self.temp_dir = Path(settings.get_temp_dir())
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+
+    def _java_vm_flags(self) -> List[str]:
+        """
+        JVM flags tuned for constrained sandboxes.
+
+        Without these, default JVM code cache reservation can exceed the
+        per-process memory limit and fail before compilation/execution starts.
+        """
+        limit_mb = max(64, int(self.memory_limit))
+        heap_mb = max(32, min(128, limit_mb // 2))
+        code_cache_mb = max(16, min(64, limit_mb // 4))
+        initial_heap_mb = max(8, min(32, heap_mb // 4))
+        return [
+            f"-Xms{initial_heap_mb}m",
+            f"-Xmx{heap_mb}m",
+            f"-XX:ReservedCodeCacheSize={code_cache_mb}m",
+            "-XX:+UseSerialGC",
+        ]
+
+    def _javac_vm_flags(self) -> List[str]:
+        return [f"-J{flag}" for flag in self._java_vm_flags()]
 
     @staticmethod
     def _classify_error(stderr: str) -> str:
@@ -68,7 +90,7 @@ class CodeExecutor:
                 sanitized[key] = value
         return sanitized
 
-    def _resource_preexec(self):
+    def _resource_preexec(self, language: Optional[str] = None):
         """
         Apply per-process resource limits on Unix.
         """
@@ -88,7 +110,11 @@ class CodeExecutor:
             resource.setrlimit(resource.RLIMIT_CPU, (cpu_soft, cpu_hard))
 
             # Address space.
-            resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+            # JVM-based tools (java/javac) can require larger virtual address space
+            # even when heap/code cache are constrained, so we do not hard-cap RLIMIT_AS
+            # for Java processes.
+            if language != "java":
+                resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
 
             # Prevent fork bombs.
             try:
@@ -350,8 +376,233 @@ if __name__ == "__main__":
 """
 
     def _create_java_harness(self, code: str, function_name: str, test_input: Any) -> str:
-        """Create Java test harness"""
-        return code
+        """
+        Create Java test harness.
+
+        Supports both:
+        - input-style solutions that define `main`
+        - function-style solutions without `main`
+        """
+        has_main = re.search(r"\bstatic\s+void\s+main\s*\(", code) is not None
+
+        if isinstance(test_input, list):
+            arg_literals = [self._python_to_java_literal(item) for item in test_input]
+        else:
+            arg_literals = [self._python_to_java_literal(test_input)]
+        args_expr = ", ".join(arg_literals)
+
+        if has_main:
+            run_logic = "Solution.main(args);"
+        else:
+            run_logic = (
+                f"            Object[] __callArgs = new Object[]{{{args_expr}}};\n"
+                f"            Object __result = __invokeSolution(\"{function_name}\", __callArgs);\n"
+                "            System.out.println(__toJson(__result));"
+            )
+
+        return f"""
+{code}
+
+class __Runner {{
+    private static Class<?> __boxedType(Class<?> t) {{
+        if (!t.isPrimitive()) return t;
+        if (t == int.class) return Integer.class;
+        if (t == long.class) return Long.class;
+        if (t == double.class) return Double.class;
+        if (t == float.class) return Float.class;
+        if (t == short.class) return Short.class;
+        if (t == byte.class) return Byte.class;
+        if (t == char.class) return Character.class;
+        if (t == boolean.class) return Boolean.class;
+        return t;
+    }}
+
+    private static boolean __isCompatible(Class<?> paramType, Object arg) {{
+        if (arg == null) return !paramType.isPrimitive();
+        Class<?> boxed = __boxedType(paramType);
+        Class<?> argType = arg.getClass();
+        if (boxed.isAssignableFrom(argType)) return true;
+        if (Number.class.isAssignableFrom(boxed) && arg instanceof Number) return true;
+        if (boxed == Character.class && arg instanceof String s && s.length() == 1) return true;
+        return false;
+    }}
+
+    private static String __snakeToCamel(String name) {{
+        if (name == null || name.isEmpty() || !name.contains("_")) return name;
+        StringBuilder sb = new StringBuilder();
+        boolean upper = false;
+        for (int i = 0; i < name.length(); i++) {{
+            char c = name.charAt(i);
+            if (c == '_') {{
+                upper = true;
+                continue;
+            }}
+            if (upper) {{
+                sb.append(Character.toUpperCase(c));
+                upper = false;
+            }} else {{
+                sb.append(c);
+            }}
+        }}
+        return sb.toString();
+    }}
+
+    private static java.util.List<String> __candidateMethodNames(String requested) {{
+        java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+        if (requested != null && !requested.isEmpty()) {{
+            names.add(requested);
+            names.add(__snakeToCamel(requested));
+        }}
+        return new java.util.ArrayList<>(names);
+    }}
+
+    private static java.lang.reflect.Method __findMethod(Class<?> cls, String name, Object[] args) {{
+        for (java.lang.reflect.Method m : cls.getDeclaredMethods()) {{
+            if (!m.getName().equals(name)) continue;
+            Class<?>[] paramTypes = m.getParameterTypes();
+            if (paramTypes.length != args.length) continue;
+            boolean ok = true;
+            for (int i = 0; i < paramTypes.length; i++) {{
+                if (!__isCompatible(paramTypes[i], args[i])) {{
+                    ok = false;
+                    break;
+                }}
+            }}
+            if (ok) return m;
+        }}
+        return null;
+    }}
+
+    private static Object __invokeSolution(String requestedName, Object[] args) throws Exception {{
+        Class<?> cls = Solution.class;
+        java.lang.reflect.Method target = null;
+        for (String name : __candidateMethodNames(requestedName)) {{
+            target = __findMethod(cls, name, args);
+            if (target != null) break;
+        }}
+        if (target == null) {{
+            throw new NoSuchMethodException(
+                "No matching method found for '" + requestedName + "' (also tried snake/camel variants)"
+            );
+        }}
+        target.setAccessible(true);
+        Object receiver = java.lang.reflect.Modifier.isStatic(target.getModifiers()) ? null : new Solution();
+        return target.invoke(receiver, args);
+    }}
+
+    private static String __escape(String s) {{
+        if (s == null) return "null";
+        return s
+            .replace("\\\\", "\\\\\\\\")
+            .replace("\\"", "\\\\\\"")
+            .replace("\\n", "\\\\n")
+            .replace("\\r", "\\\\r")
+            .replace("\\t", "\\\\t");
+    }}
+
+    private static String __toJson(Object obj) {{
+        if (obj == null) return "null";
+        if (obj instanceof String || obj instanceof Character) {{
+            return "\\"" + __escape(String.valueOf(obj)) + "\\"";
+        }}
+        if (obj instanceof Number || obj instanceof Boolean) {{
+            return String.valueOf(obj);
+        }}
+        if (obj instanceof java.util.Map<?, ?> map) {{
+            StringBuilder sb = new StringBuilder();
+            sb.append("{{");
+            boolean first = true;
+            for (java.util.Map.Entry<?, ?> e : map.entrySet()) {{
+                if (!first) sb.append(",");
+                sb.append(__toJson(String.valueOf(e.getKey())));
+                sb.append(":");
+                sb.append(__toJson(e.getValue()));
+                first = false;
+            }}
+            sb.append("}}");
+            return sb.toString();
+        }}
+        if (obj instanceof Iterable<?> it) {{
+            StringBuilder sb = new StringBuilder();
+            sb.append("[");
+            boolean first = true;
+            for (Object item : it) {{
+                if (!first) sb.append(",");
+                sb.append(__toJson(item));
+                first = false;
+            }}
+            sb.append("]");
+            return sb.toString();
+        }}
+        if (obj.getClass().isArray()) {{
+            StringBuilder sb = new StringBuilder();
+            sb.append("[");
+            int len = java.lang.reflect.Array.getLength(obj);
+            for (int i = 0; i < len; i++) {{
+                if (i > 0) sb.append(",");
+                sb.append(__toJson(java.lang.reflect.Array.get(obj, i)));
+            }}
+            sb.append("]");
+            return sb.toString();
+        }}
+        return "\\"" + __escape(String.valueOf(obj)) + "\\"";
+    }}
+
+    public static void main(String[] args) {{
+        try {{
+            {run_logic}
+        }} catch (Throwable e) {{
+            System.err.println("ERROR: " + e.getMessage());
+            e.printStackTrace(System.err);
+            System.exit(1);
+        }}
+    }}
+}}
+"""
+
+    def _python_to_java_literal(self, value: Any) -> str:
+        """Convert Python values to Java literals for harness invocation."""
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            if isinstance(value, float):
+                if value != value:
+                    return "Double.NaN"
+                if value == float("inf"):
+                    return "Double.POSITIVE_INFINITY"
+                if value == float("-inf"):
+                    return "Double.NEGATIVE_INFINITY"
+                return repr(value)
+            return str(value)
+        if isinstance(value, str):
+            escaped = (
+                value.replace("\\", "\\\\")
+                .replace('"', '\\"')
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+            )
+            return f'"{escaped}"'
+        if isinstance(value, list):
+            if not value:
+                return "new java.util.ArrayList<>()"
+            inner = ", ".join(self._python_to_java_literal(item) for item in value)
+            return f"new java.util.ArrayList<>(java.util.Arrays.asList({inner}))"
+        if isinstance(value, dict):
+            entries = []
+            for k, v in value.items():
+                entries.append(
+                    f"put({self._python_to_java_literal(k)}, {self._python_to_java_literal(v)});"
+                )
+            body = " ".join(entries)
+            return (
+                "new java.util.HashMap<Object, Object>() {{ "
+                f"{body} "
+                "}}"
+            )
+        return self._python_to_java_literal(str(value))
 
     def _create_c_cpp_harness(self, code: str, function_name: str, test_input: Any, language: str) -> str:
         """Create C/C++ test harness"""
@@ -396,7 +647,7 @@ if (typeof {function_name} === 'function') {{
         output_file = os.path.join(temp_dir, "solution.exe" if platform.system() == "Windows" else "solution")
 
         compile_commands = {
-            "java": ["javac", source_file],
+            "java": ["javac", *self._javac_vm_flags(), source_file],
             "c": ["gcc", source_file, "-o", output_file, "-lm"],
             "cpp": ["g++", source_file, "-o", output_file, "-std=c++17"],
             "csharp": ["csc", f"/out:{output_file}", source_file]
@@ -415,7 +666,7 @@ if (typeof {function_name} === 'function') {{
                     timeout=30,
                     cwd=temp_dir,
                     env=self._sanitize_env(),
-                    preexec_fn=self._resource_preexec(),
+                    preexec_fn=self._resource_preexec(language),
                 )
             finally:
                 _execution_semaphore.release()
@@ -443,7 +694,7 @@ if (typeof {function_name} === 'function') {{
         if language == "python":
             cmd = ["python", executable]
         elif language == "java":
-            cmd = ["java", "-cp", temp_dir, "Solution"]
+            cmd = ["java", *self._java_vm_flags(), "-cp", temp_dir, "__Runner"]
         elif language == "javascript":
             cmd = ["node", executable]
         else:
@@ -466,7 +717,7 @@ if (typeof {function_name} === 'function') {{
                 cwd=temp_dir,
                 env=env,
                 input=stdin_data if stdin_data else None,
-                preexec_fn=self._resource_preexec(),
+                preexec_fn=self._resource_preexec(language),
             )
         finally:
             _execution_semaphore.release()
@@ -531,6 +782,8 @@ if (typeof {function_name} === 'function') {{
 
                 if language == "python":
                     full_code = self._create_python_raw_harness(code, function_name, test_input)
+                elif language == "java":
+                    full_code = self._create_java_harness(code, function_name, test_input)
                 elif language == "javascript":
                     full_code = self._create_javascript_raw_harness(code, function_name, test_input)
                 else:

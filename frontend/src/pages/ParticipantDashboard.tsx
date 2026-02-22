@@ -66,7 +66,7 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
 
   const loadChallenges = async () => {
     try {
-      const response = await api.get('/challenges')
+      const response = await api.get('/challenges/')
       setChallenges(response.data || [])
     } catch (error) {
       console.error('Failed to load challenges', error)
@@ -176,7 +176,6 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
           done = true
           const lines: string[] = []
           lines.push(`Submission ${submissionId}: ${sub?.status || 'unknown'}`)
-          if (typeof sub?.score === 'number') lines.push(`Score: ${sub.score}/${sub.max_score ?? 100}`)
           if (sub?.execution_time !== undefined && sub?.execution_time !== null) {
             lines.push(`Execution Time: ${sub.execution_time}s`)
           }
@@ -224,13 +223,11 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
     return templates[lang] || ''
   }
 
-  const getBestScore = (questionId: string) => {
-    const subs = mySubmissions.filter(s => s.question_id === questionId && s.status === 'completed')
-    if (subs.length === 0) return null
-    return Math.max(...subs.map(s => s.score || 0))
+  const isQuestionSolved = (questionId: string) => {
+    return mySubmissions.some(s => s.question_id === questionId && s.status === 'completed')
   }
 
-  const solvedCount = challenges.filter(c => getBestScore(c.id) !== null).length
+  const solvedCount = challenges.filter(c => isQuestionSolved(c.id)).length
 
   return (
     <div className="p-layout">
@@ -273,17 +270,17 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
         {activeTab === 'challenges' && !selectedChallenge && (
           <div className="p-challenge-list">
             {challenges.map(c => {
-              const best = getBestScore(c.id)
+              const solved = isQuestionSolved(c.id)
               return (
                 <button
                   key={c.id}
-                  className={`p-challenge-row ${best !== null ? 'solved' : ''}`}
+                  className={`p-challenge-row ${solved ? 'solved' : ''}`}
                   onClick={() => setSelectedChallenge(c)}
                 >
                   <span className="p-challenge-num">#{c.number}</span>
                   <span className="p-challenge-title">{c.title}</span>
-                  {best !== null ? (
-                    <span className={`p-challenge-badge done ${best === c.max_score ? 'perfect' : ''}`}>{best}/{c.max_score}</span>
+                  {solved ? (
+                    <span className="p-challenge-badge done">Solved</span>
                   ) : (
                     <span className="p-challenge-badge open">Open</span>
                   )}
@@ -334,16 +331,13 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
             </div>
             <div className="p-grid">
               {challenges.map(c => {
-                const best = getBestScore(c.id)
-                const isPerfect = best === c.max_score
+                const solved = isQuestionSolved(c.id)
                 return (
-                  <div key={c.id} className={`p-card ${isPerfect ? 'perfect' : ''} ${best !== null && !isPerfect ? 'partial' : ''}`}>
+                  <div key={c.id} className={`p-card ${solved ? 'partial' : ''}`}>
                     <div className="p-card-header">
                       <span className="p-card-number">Q{c.number}</span>
-                      {best !== null ? (
-                        <span className={`p-card-status ${isPerfect ? 'perfect' : 'partial'}`}>
-                          {best}/{c.max_score}
-                        </span>
+                      {solved ? (
+                        <span className="p-card-status partial">Solved</span>
                       ) : (
                         <span className="p-card-status new">New</span>
                       )}
@@ -355,7 +349,7 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
                     <div className="p-card-footer">
                       <button onClick={() => downloadPDF(c.id)} className="p-card-btn secondary">PDF</button>
                       <button onClick={() => setSelectedChallenge(c)} className="p-card-btn primary">
-                        {best !== null ? 'Retry' : 'Solve'}
+                        {solved ? 'Retry' : 'Solve'}
                       </button>
                     </div>
                   </div>

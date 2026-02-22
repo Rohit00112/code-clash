@@ -78,7 +78,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
 
   const loadUsers = async () => {
     try {
-      const response = await api.get('/users')
+      const response = await api.get('/users/')
       setUsers(response.data || [])
     } catch (error) {
       console.error('Failed to load users', error)
@@ -87,7 +87,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
 
   const loadSubmissions = async () => {
     try {
-      const response = await api.get('/submissions')
+      const response = await api.get('/submissions/')
       setSubmissions(response.data || [])
     } catch (error) {
       console.error('Failed to load submissions', error)
@@ -114,7 +114,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
 
   const loadChallenges = async () => {
     try {
-      const response = await api.get('/challenges')
+      const response = await api.get('/challenges/')
       setChallenges(response.data || [])
     } catch (error) {
       setChallenges([])
