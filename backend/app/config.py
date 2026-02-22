@@ -1,10 +1,13 @@
 """Application configuration management"""
 
-from pydantic_settings import BaseSettings
-from typing import List
+import json
 from functools import lru_cache
 from pathlib import Path
-from pydantic import Field
+from typing import Annotated, Any, List
+from urllib.parse import quote_plus
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 # Base directory: backend/
 _BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,7 +28,12 @@ class Settings(BaseSettings):
     WORKERS: int = 4
     
     # Database (PostgreSQL)
-    DATABASE_URL: str = "postgresql://codeclash:codeclash@localhost:5432/codeclash_db"
+    DATABASE_URL: str = ""
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "codeclash_db"
+    POSTGRES_USER: str = "codeclash"
+    POSTGRES_PASSWORD: str = "codeclash"
     DATABASE_POOL_SIZE: int = 30
     DATABASE_MAX_OVERFLOW: int = 20
     
@@ -69,7 +77,7 @@ class Settings(BaseSettings):
     LOG_FILE: str = ""
     
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: Annotated[List[str], NoDecode] = ["http://localhost:3000"]
 
     # Admin
     ADMIN_USERNAME: str = "admin"
@@ -90,6 +98,35 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, value: Any) -> Any:
+        """
+        Accept JSON array or comma-separated origins from env.
+
+        Examples:
+            CORS_ORIGINS=["http://localhost:3000","http://example.com"]
+            CORS_ORIGINS=http://localhost:3000,http://example.com
+        """
+        if not isinstance(value, str):
+            return value
+
+        raw = value.strip()
+        if not raw:
+            return []
+
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+
+        if isinstance(parsed, str):
+            return [parsed]
+        if isinstance(parsed, list):
+            return [str(origin).strip() for origin in parsed if str(origin).strip()]
+
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
     
     def _resolve_path(self, value: str, default: str) -> str:
         """Resolve path - use absolute if empty or relative"""
@@ -114,6 +151,24 @@ class Settings(BaseSettings):
         if not p or p.startswith(".."):
             return str(_BASE_DIR.parent / "logs" / "app.log")
         return p
+
+    def get_database_url(self) -> str:
+        """
+        Resolve database URL.
+
+        Priority:
+          1) Explicit DATABASE_URL
+          2) Construct from POSTGRES_* parts with safe URL encoding
+        """
+        if self.DATABASE_URL:
+            return self.DATABASE_URL
+
+        user = quote_plus(self.POSTGRES_USER)
+        password = quote_plus(self.POSTGRES_PASSWORD)
+        return (
+            f"postgresql://{user}:{password}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
 
     def validate_security_settings(self) -> None:
         """

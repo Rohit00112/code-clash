@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # PostgreSQL engine
 engine = create_engine(
-    settings.DATABASE_URL,
+    settings.get_database_url(),
     pool_size=settings.DATABASE_POOL_SIZE,
     max_overflow=settings.DATABASE_MAX_OVERFLOW,
     pool_timeout=30,

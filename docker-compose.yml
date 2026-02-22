@@ -33,7 +33,11 @@ services:
       ENVIRONMENT: production
       DEBUG: "False"
       PYTHONPATH: /app/backend
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codeclash}:${POSTGRES_PASSWORD:-change_me_now}@db:5432/${POSTGRES_DB:-codeclash_db}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-codeclash_db}
+      POSTGRES_USER: ${POSTGRES_USER:-codeclash}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_now}
       SECRET_KEY: ${SECRET_KEY}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
