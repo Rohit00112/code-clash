@@ -17,6 +17,7 @@ from app.services.audit_service import audit_service
 from app.api.deps import get_current_admin_user
 from app.models.user import User
 from app.models.audit import AuditEvent
+from app.models.draft import CodeDraft
 from app.core.exceptions import ValidationError
 
 router = APIRouter()
@@ -416,11 +417,18 @@ def delete_challenge(
     current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
-    """Delete a challenge (PDF + test case files)"""
+    """Delete a challenge (PDF + test case files) and associated drafts."""
     if not challenge_loader.validate_question_exists(question_id):
         raise ValidationError(f"Challenge {question_id} not found")
 
     challenge_loader.delete_question(question_id)
+    deleted_drafts = (
+        db.query(CodeDraft)
+        .filter(CodeDraft.question_id == question_id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+
     audit_service.log_event(
         db,
         user_id=current_user.id,
@@ -428,10 +436,11 @@ def delete_challenge(
         target_type="challenge",
         target_id=question_id,
         ip_address=request.client.host if request.client else None,
-        metadata={},
+        metadata={"deleted_drafts": deleted_drafts},
     )
 
     return {
         "success": True,
-        "message": f"Challenge {question_id} deleted"
+        "message": f"Challenge {question_id} deleted",
+        "deleted_drafts": deleted_drafts,
     }

@@ -1,4 +1,4 @@
-import { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react'
+import { useState, useEffect, useMemo, useRef, Component, ErrorInfo, ReactNode } from 'react'
 import { api } from '../services/api'
 import VSCodeIDE from '../components/VSCodeIDE'
 import './Dashboard.css'
@@ -36,15 +36,37 @@ interface ParticipantDashboardProps {
   onLogout: () => void
 }
 
+interface Challenge {
+  id: string
+  number: number
+  title: string
+  function_name: string
+}
+
+interface DraftLoadResult {
+  id?: number
+  code?: string
+}
+
 export default function ParticipantDashboard({ user, onLogout }: ParticipantDashboardProps) {
   const [activeTab, setActiveTab] = useState('challenges')
-  const [challenges, setChallenges] = useState<any[]>([])
-  const [selectedChallenge, setSelectedChallenge] = useState<any>(null)
+  const [challenges, setChallenges] = useState<Challenge[]>([])
+  const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(null)
   const [language, setLanguage] = useState('python')
   const [code, setCode] = useState('')
   const [output, setOutput] = useState('')
   const [loading, setLoading] = useState(false)
   const [mySubmissions, setMySubmissions] = useState<any[]>([])
+  const [isDraftSyncing, setIsDraftSyncing] = useState(false)
+
+  const selectedChallenge = useMemo(
+    () => challenges.find((challenge) => challenge.id === selectedChallengeId) || null,
+    [challenges, selectedChallengeId]
+  )
+
+  const draftRequestRef = useRef(0)
+  const activeDraftContextRef = useRef('')
+  const autosaveEnabledRef = useRef(false)
 
   useEffect(() => {
     loadChallenges()
@@ -52,17 +74,36 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
   }, [])
 
   useEffect(() => {
-    if (selectedChallenge && language) {
-      loadDraft()
+    if (selectedChallengeId && !selectedChallenge) {
+      autosaveEnabledRef.current = false
+      setSelectedChallengeId(null)
+      setCode('')
     }
-  }, [selectedChallenge, language])
+  }, [selectedChallengeId, selectedChallenge])
 
   useEffect(() => {
-    if (selectedChallenge && language && code) {
-      const timer = setTimeout(() => saveDraft(), 2000)
-      return () => clearTimeout(timer)
+    if (!selectedChallenge) {
+      autosaveEnabledRef.current = false
+      return
     }
-  }, [code])
+    void loadDraftForContext(selectedChallenge.id, language, selectedChallenge.function_name)
+  }, [selectedChallenge?.id, selectedChallenge?.function_name, language])
+
+  useEffect(() => {
+    if (!selectedChallenge || !language || !code) return
+    if (isDraftSyncing || !autosaveEnabledRef.current) return
+
+    const questionId = selectedChallenge.id
+    const currentLanguage = language
+    const codeSnapshot = code
+
+    const timer = setTimeout(() => {
+      if (!autosaveEnabledRef.current) return
+      void saveDraft(questionId, currentLanguage, codeSnapshot)
+    }, 2000)
+
+    return () => clearTimeout(timer)
+  }, [code, selectedChallenge?.id, language, isDraftSyncing])
 
   const loadChallenges = async () => {
     try {
@@ -82,30 +123,83 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
     }
   }
 
-  const loadDraft = async () => {
-    if (!selectedChallenge) return
+  const loadDraftForContext = async (questionId: string, lang: string, functionName: string) => {
+    const contextKey = `${questionId}:${lang}`
+    const requestId = draftRequestRef.current + 1
+    draftRequestRef.current = requestId
+    activeDraftContextRef.current = contextKey
+    autosaveEnabledRef.current = false
+    setIsDraftSyncing(true)
+
+    const templateCode = getDefaultCode(lang, functionName)
+
     try {
       const response = await api.post('/drafts/load', {
-        question_id: selectedChallenge.id,
-        language
+        question_id: questionId,
+        language: lang,
       })
-      setCode(response.data?.code || getDefaultCode(language, selectedChallenge.function_name))
+
+      if (draftRequestRef.current !== requestId || activeDraftContextRef.current !== contextKey) return
+
+      const draft: DraftLoadResult = response.data || {}
+      if ((draft.id || 0) > 0) {
+        const useSavedDraft = window.confirm(
+          `Saved ${lang} draft found for ${questionId}.\n\nPress OK to load saved draft.\nPress Cancel to start fresh (saved draft will be deleted).`
+        )
+
+        if (useSavedDraft) {
+          setCode(draft.code || templateCode)
+        } else {
+          try {
+            await api.delete(`/drafts/${questionId}/${lang}`)
+          } catch (error) {
+            console.error('Failed to delete existing draft before start fresh', error)
+          }
+
+          if (draftRequestRef.current !== requestId || activeDraftContextRef.current !== contextKey) return
+          setCode(templateCode)
+        }
+      } else {
+        setCode(draft.code || templateCode)
+      }
     } catch (error) {
-      setCode(getDefaultCode(language, selectedChallenge.function_name))
+      if (draftRequestRef.current !== requestId || activeDraftContextRef.current !== contextKey) return
+      setCode(templateCode)
+    } finally {
+      if (draftRequestRef.current === requestId && activeDraftContextRef.current === contextKey) {
+        setIsDraftSyncing(false)
+        autosaveEnabledRef.current = true
+      }
     }
   }
 
-  const saveDraft = async () => {
-    if (!selectedChallenge || !code) return
+  const saveDraft = async (questionId: string, lang: string, codeValue: string) => {
+    if (!questionId || !codeValue || !autosaveEnabledRef.current || isDraftSyncing) return
+
     try {
       await api.post('/drafts/save', {
-        question_id: selectedChallenge.id,
-        language,
-        code
+        question_id: questionId,
+        language: lang,
+        code: codeValue,
       })
     } catch (error) {
       console.error('Failed to save draft', error)
     }
+  }
+
+  const handleSelectChallenge = (challengeId: string) => {
+    autosaveEnabledRef.current = false
+    setSelectedChallengeId(challengeId)
+  }
+
+  const handleBackToChallenges = () => {
+    autosaveEnabledRef.current = false
+    setSelectedChallengeId(null)
+  }
+
+  const handleLanguageChange = (lang: string) => {
+    autosaveEnabledRef.current = false
+    setLanguage(lang)
   }
 
   const handleTestRun = async () => {
@@ -116,7 +210,7 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
       const response = await api.post('/submissions/test-run', {
         question_id: selectedChallenge.id,
         language,
-        code
+        code,
       })
       const result = response.data
       const lines: string[] = []
@@ -157,7 +251,7 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
       const response = await api.post('/submissions/submit', {
         question_id: selectedChallenge.id,
         language,
-        code
+        code,
       })
       const result = response.data || {}
       const submissionId = result?.submission_id
@@ -166,7 +260,7 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
       if (submissionId) {
         let done = false
         for (let i = 0; i < 60; i++) {
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          await new Promise((resolve) => setTimeout(resolve, 1000))
           const statusResp = await api.get(`/submissions/${submissionId}`)
           const sub = statusResp.data
           if (sub?.status === 'queued' || sub?.status === 'running' || sub?.status === 'pending') {
@@ -212,22 +306,64 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
   }
 
   const getDefaultCode = (lang: string, functionName: string = 'solution') => {
-    const templates: any = {
+    const templates: Record<string, string> = {
       python: `def ${functionName}(*args):\n    # Add parameters as per problem statement\n    pass\n`,
-      java: 'public class Solution {\n    public static void main(String[] args) {\n        // Write your solution here\n    }\n}\n',
-      c: '#include <stdio.h>\n\nint main() {\n    // Write your solution here\n    return 0;\n}\n',
-      cpp: '#include <iostream>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    return 0;\n}\n',
+      java:
+        `public class Solution {\n` +
+        `    public static Object ${functionName}(Object input) {\n` +
+        `        // Add parameters as per problem statement and return expected output.\n` +
+        `        return null;\n` +
+        `    }\n\n` +
+        `    public static void main(String[] args) {\n` +
+        `        // Optional local testing entrypoint.\n` +
+        `    }\n` +
+        `}\n`,
+      c:
+        `#include <stdio.h>\n\n` +
+        `// Update signature and implementation based on the problem statement.\n` +
+        `int ${functionName}(void) {\n` +
+        `    return 0;\n` +
+        `}\n\n` +
+        `int main(void) {\n` +
+        `    // Optional local testing entrypoint.\n` +
+        `    return 0;\n` +
+        `}\n`,
+      cpp:
+        `#include <bits/stdc++.h>\n` +
+        `using namespace std;\n\n` +
+        `// Update signature and return type based on problem statement.\n` +
+        `template <typename... Args>\n` +
+        `int ${functionName}(Args... args) {\n` +
+        `    return 0;\n` +
+        `}\n\n` +
+        `int main() {\n` +
+        `    // Optional local testing entrypoint.\n` +
+        `    return 0;\n` +
+        `}\n`,
       javascript: `function ${functionName}(...args) {\n    // Add parameters as per problem statement\n}\n`,
-      csharp: 'using System;\n\nclass Program {\n    static void Main() {\n        // Write your solution here\n    }\n}\n'
+      csharp:
+        `using System;\n\n` +
+        `class Solution\n` +
+        `{\n` +
+        `    public static object ${functionName}(object input)\n` +
+        `    {\n` +
+        `        // Add parameters as per problem statement and return expected output.\n` +
+        `        return null;\n` +
+        `    }\n\n` +
+        `    static void Main()\n` +
+        `    {\n` +
+        `        // Optional local testing entrypoint.\n` +
+        `    }\n` +
+        `}\n`,
     }
     return templates[lang] || ''
   }
 
   const isQuestionSolved = (questionId: string) => {
-    return mySubmissions.some(s => s.question_id === questionId && s.status === 'completed')
+    return mySubmissions.some((s) => s.question_id === questionId && s.status === 'completed')
   }
 
-  const solvedCount = challenges.filter(c => isQuestionSolved(c.id)).length
+  const solvedCount = challenges.filter((challenge) => isQuestionSolved(challenge.id)).length
 
   return (
     <div className="p-layout">
@@ -252,14 +388,14 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
         <nav className="p-nav">
           <button
             className={`p-nav-btn ${activeTab === 'challenges' && !selectedChallenge ? 'active' : ''}`}
-            onClick={() => { setActiveTab('challenges'); setSelectedChallenge(null) }}
+            onClick={() => { setActiveTab('challenges'); handleBackToChallenges() }}
           >
             <span className="p-nav-label">Challenges</span>
             <span className="p-nav-badge">{challenges.length}</span>
           </button>
           <button
             className={`p-nav-btn ${activeTab === 'submissions' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('submissions'); setSelectedChallenge(null) }}
+            onClick={() => { setActiveTab('submissions'); handleBackToChallenges() }}
           >
             <span className="p-nav-label">Submissions</span>
             <span className="p-nav-badge">{mySubmissions.length}</span>
@@ -269,16 +405,16 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
         {/* Challenge list */}
         {activeTab === 'challenges' && !selectedChallenge && (
           <div className="p-challenge-list">
-            {challenges.map(c => {
-              const solved = isQuestionSolved(c.id)
+            {challenges.map((challenge) => {
+              const solved = isQuestionSolved(challenge.id)
               return (
                 <button
-                  key={c.id}
+                  key={challenge.id}
                   className={`p-challenge-row ${solved ? 'solved' : ''}`}
-                  onClick={() => setSelectedChallenge(c)}
+                  onClick={() => handleSelectChallenge(challenge.id)}
                 >
-                  <span className="p-challenge-num">#{c.number}</span>
-                  <span className="p-challenge-title">{c.title}</span>
+                  <span className="p-challenge-num">#{challenge.number}</span>
+                  <span className="p-challenge-title">{challenge.title}</span>
                   {solved ? (
                     <span className="p-challenge-badge done">Solved</span>
                   ) : (
@@ -301,7 +437,7 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
             <button className="p-action-btn" onClick={() => downloadPDF(selectedChallenge.id)}>
               Download PDF
             </button>
-            <button className="p-action-btn secondary" onClick={() => setSelectedChallenge(null)}>
+            <button className="p-action-btn secondary" onClick={handleBackToChallenges}>
               Back to challenges
             </button>
           </div>
@@ -330,25 +466,25 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
               </div>
             </div>
             <div className="p-grid">
-              {challenges.map(c => {
-                const solved = isQuestionSolved(c.id)
+              {challenges.map((challenge) => {
+                const solved = isQuestionSolved(challenge.id)
                 return (
-                  <div key={c.id} className={`p-card ${solved ? 'partial' : ''}`}>
+                  <div key={challenge.id} className={`p-card ${solved ? 'partial' : ''}`}>
                     <div className="p-card-header">
-                      <span className="p-card-number">Q{c.number}</span>
+                      <span className="p-card-number">Q{challenge.number}</span>
                       {solved ? (
                         <span className="p-card-status partial">Solved</span>
                       ) : (
                         <span className="p-card-status new">New</span>
                       )}
                     </div>
-                    <h3 className="p-card-name">{c.title}</h3>
+                    <h3 className="p-card-name">{challenge.title}</h3>
                     <div className="p-card-info">
-                      <code>{c.function_name}()</code>
+                      <code>{challenge.function_name}()</code>
                     </div>
                     <div className="p-card-footer">
-                      <button onClick={() => downloadPDF(c.id)} className="p-card-btn secondary">PDF</button>
-                      <button onClick={() => setSelectedChallenge(c)} className="p-card-btn primary">
+                      <button onClick={() => downloadPDF(challenge.id)} className="p-card-btn secondary">PDF</button>
+                      <button onClick={() => handleSelectChallenge(challenge.id)} className="p-card-btn primary">
                         {solved ? 'Retry' : 'Solve'}
                       </button>
                     </div>
@@ -364,9 +500,9 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
           <IDEErrorBoundary>
             <VSCodeIDE
               code={code}
-              onChange={(v) => setCode(v)}
+              onChange={(value) => setCode(value)}
               language={language}
-              onLanguageChange={(lang) => setLanguage(lang)}
+              onLanguageChange={handleLanguageChange}
               onTestRun={handleTestRun}
               onSubmit={handleSubmit}
               loading={loading}
@@ -397,12 +533,12 @@ export default function ParticipantDashboard({ user, onLogout }: ParticipantDash
                   </tr>
                 </thead>
                 <tbody>
-                  {mySubmissions.map(s => (
-                    <tr key={s.id}>
-                      <td className="p-td-main">{s.question_id}</td>
-                      <td><span className="p-td-lang">{s.language}</span></td>
-                      <td><span className={`p-td-status ${s.status}`}>{s.status}</span></td>
-                      <td className="p-td-time">{new Date(s.submitted_at).toLocaleString()}</td>
+                  {mySubmissions.map((submission) => (
+                    <tr key={submission.id}>
+                      <td className="p-td-main">{submission.question_id}</td>
+                      <td><span className="p-td-lang">{submission.language}</span></td>
+                      <td><span className={`p-td-status ${submission.status}`}>{submission.status}</span></td>
+                      <td className="p-td-time">{new Date(submission.submitted_at).toLocaleString()}</td>
                     </tr>
                   ))}
                   {mySubmissions.length === 0 && (

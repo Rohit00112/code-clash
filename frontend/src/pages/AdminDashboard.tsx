@@ -253,7 +253,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
   }
 
   const handleDeleteChallenge = async (questionId: string) => {
-    if (!confirm(`Delete challenge ${questionId}? This removes the PDF and test cases. Existing submissions are kept.`)) return
+    if (!confirm(`Delete challenge ${questionId}? This removes PDF, test cases, and saved drafts for this challenge. Existing submissions are kept.`)) return
     try {
       await api.delete(`/admin/challenges/${questionId}`)
       setMessage(`${questionId} deleted`)

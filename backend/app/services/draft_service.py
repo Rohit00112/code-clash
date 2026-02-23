@@ -5,9 +5,8 @@ from sqlalchemy import update
 from typing import Optional
 from datetime import datetime
 from app.models.draft import CodeDraft
-from app.schemas.draft import DraftCreate, DraftUpdate, DraftResponse
+from app.schemas.draft import DraftResponse
 from app.core.exceptions import (
-    ResourceNotFoundError,
     ConcurrentModificationError,
     ValidationError
 )
@@ -33,11 +32,57 @@ class DraftService:
         """
         templates = {
             "python": f"def {function_name}(*args):\n    # Add parameters as per problem statement\n    pass\n",
-            "java": "public class Solution {\n    public static void main(String[] args) {\n        // Your code here\n    }\n}\n",
-            "cpp": "#include <iostream>\nusing namespace std;\n\nint main() {\n    // Your code here\n    return 0;\n}\n",
-            "c": "#include <stdio.h>\n\nint main() {\n    // Your code here\n    return 0;\n}\n",
+            "java": (
+                "public class Solution {\n"
+                f"    public static Object {function_name}(Object input) {{\n"
+                "        // Add parameters as per problem statement\n"
+                "        return null;\n"
+                "    }\n\n"
+                "    public static void main(String[] args) {\n"
+                "        // Optional local testing entrypoint\n"
+                "    }\n"
+                "}\n"
+            ),
+            "cpp": (
+                "#include <bits/stdc++.h>\n"
+                "using namespace std;\n\n"
+                "// Update signature and return type based on problem statement.\n"
+                "template <typename... Args>\n"
+                f"int {function_name}(Args... args) {{\n"
+                "    return 0;\n"
+                "}\n\n"
+                "int main() {\n"
+                "    // Optional local testing entrypoint\n"
+                "    return 0;\n"
+                "}\n"
+            ),
+            "c": (
+                "#include <stdio.h>\n\n"
+                "// Update signature and implementation based on problem statement.\n"
+                f"int {function_name}(void) {{\n"
+                "    return 0;\n"
+                "}\n\n"
+                "int main(void) {\n"
+                "    // Optional local testing entrypoint\n"
+                "    return 0;\n"
+                "}\n"
+            ),
             "javascript": f"function {function_name}(...args) {{\n    // Add parameters as per problem statement\n}}\n",
-            "csharp": "using System;\n\nclass Solution {\n    static void Main() {\n        // Your code here\n    }\n}\n"
+            "csharp": (
+                "using System;\n\n"
+                "class Solution\n"
+                "{\n"
+                f"    public static object {function_name}(object input)\n"
+                "    {\n"
+                "        // Add parameters as per problem statement\n"
+                "        return null;\n"
+                "    }\n\n"
+                "    static void Main()\n"
+                "    {\n"
+                "        // Optional local testing entrypoint\n"
+                "    }\n"
+                "}\n"
+            )
         }
         return templates.get(language, "// Your code here\n")
     
